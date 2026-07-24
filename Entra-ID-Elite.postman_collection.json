@@ -1,0 +1,124 @@
+{
+  "info": {
+    "name": "Entra ID Elite",
+    "description": "Check the deployment from outside Azure. Two folders: 'Function App' talks to your deployed app (needs the function key); 'Platform API (direct)' talks to the platform itself (needs the company API key and actor email) so you can verify the former-employee list independently of the app.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Function App",
+      "item": [
+        {
+          "name": "Preview — who would be added or removed",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "https://{{functionAppHost}}/api/former/preview?code={{functionKey}}",
+              "protocol": "https",
+              "host": ["{{functionAppHost}}"],
+              "path": ["api", "former", "preview"],
+              "query": [{ "key": "code", "value": "{{functionKey}}" }]
+            },
+            "description": "Read-only. Shows, per company: populations read from Entra ID, the planned adds/removes, and how many existing list entries are preserved. Writes nothing."
+          }
+        },
+        {
+          "name": "Manual add — suppress one person now",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"add\",\n  \"emails\": [\"{{testEmail}}\"],\n  \"company_id\": \"{{companyId}}\"\n}"
+            },
+            "url": {
+              "raw": "https://{{functionAppHost}}/api/former/manual?code={{functionKey}}",
+              "protocol": "https",
+              "host": ["{{functionAppHost}}"],
+              "path": ["api", "former", "manual"],
+              "query": [{ "key": "code", "value": "{{functionKey}}" }]
+            },
+            "description": "Adds the email to the former list immediately and keeps it there across syncs (until removed). Returns 409 while a sync is writing the same company; retry shortly."
+          }
+        },
+        {
+          "name": "Manual remove",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"remove\",\n  \"emails\": [\"{{testEmail}}\"],\n  \"company_id\": \"{{companyId}}\"\n}"
+            },
+            "url": {
+              "raw": "https://{{functionAppHost}}/api/former/manual?code={{functionKey}}",
+              "protocol": "https",
+              "host": ["{{functionAppHost}}"],
+              "path": ["api", "former", "manual"],
+              "query": [{ "key": "code", "value": "{{functionKey}}" }]
+            },
+            "description": "Removes the manual entry. If policy still wants the person former (e.g. their account is disabled), the next sync re-adds them."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Platform API (direct)",
+      "item": [
+        {
+          "name": "List former employees",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "API-Key", "value": "{{apiKey}}" }],
+            "url": {
+              "raw": "{{platformBaseUrl}}/api/company/{{companyId}}/dark-web-monitoring/former-employees",
+              "host": ["{{platformBaseUrl}}"],
+              "path": ["api", "company", "{{companyId}}", "dark-web-monitoring", "former-employees"]
+            },
+            "description": "The list as the platform sees it right now — independent verification of what the app wrote."
+          }
+        },
+        {
+          "name": "Add former employee",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "API-Key", "value": "{{apiKey}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"formerEmployees\": [\"{{testEmail}}\"],\n  \"comment\": \"postman\",\n  \"email\": \"{{actorEmail}}\"\n}"
+            },
+            "url": {
+              "raw": "{{platformBaseUrl}}/api/company/{{companyId}}/dark-web-monitoring/add-former-employee",
+              "host": ["{{platformBaseUrl}}"],
+              "path": ["api", "company", "{{companyId}}", "dark-web-monitoring", "add-former-employee"]
+            },
+            "description": "Direct add, bypassing the app. 'email' is the acting platform user; an address that does not belong to the company is rejected. Entries added here are treated as external by the app and never auto-removed."
+          }
+        },
+        {
+          "name": "Delete former employee",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "API-Key", "value": "{{apiKey}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"employeeEmails\": [\"{{testEmail}}\"],\n  \"email\": \"{{actorEmail}}\"\n}"
+            },
+            "url": {
+              "raw": "{{platformBaseUrl}}/api/company/{{companyId}}/dark-web-monitoring/delete-former-employee",
+              "host": ["{{platformBaseUrl}}"],
+              "path": ["api", "company", "{{companyId}}", "dark-web-monitoring", "delete-former-employee"]
+            },
+            "description": "Marks the person back as an employee. A 404 with an HTML body means no matching entry existed."
+          }
+        }
+      ]
+    }
+  ]
+}
