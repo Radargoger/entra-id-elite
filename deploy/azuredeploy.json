@@ -1,0 +1,810 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "languageVersion": "2.0",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.45.15.27210",
+      "templateHash": "10568765363404491107"
+    }
+  },
+  "parameters": {
+    "FormerCompanies": {
+      "type": "secureObject",
+      "metadata": {
+        "description": "Object with a \"rows\" array from the portal grid: one row per company (companyId, tenantIds CSV, apiKey, actorEmail). Secure so API keys never appear in deployment history. Serialized into FORMER_COMPANY_MAP for the engine."
+      }
+    },
+    "Environment": {
+      "type": "string",
+      "defaultValue": "platform",
+      "allowedValues": [
+        "platform",
+        "preprod"
+      ],
+      "metadata": {
+        "description": "Target environment. platform is production; preprod is the staging platform."
+      }
+    },
+    "EntraIdClientId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Existing multi-tenant App Registration client ID. Leave empty to create a new App Registration automatically."
+      }
+    },
+    "CreateAppRegistration": {
+      "type": "bool",
+      "defaultValue": "[empty(parameters('EntraIdClientId'))]",
+      "metadata": {
+        "description": "Create a new App Registration + FIC automatically (requires Application Administrator)."
+      }
+    },
+    "GrantAdminConsent": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Also grant admin consent for the Graph application permissions automatically. Requires Global Administrator or Privileged Role Administrator — Application Administrator cannot consent to Microsoft Graph app roles."
+      }
+    },
+    "SkipFicCreation": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Skip adding a Federated Identity Credential to an existing App Registration (set true only if you add it manually)."
+      }
+    },
+    "FormerApplyChanges": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Write to the platform former-employee lists. false = plan-only trial: the sync reads, plans and audits but never mutates."
+      }
+    },
+    "FormerClientMode": {
+      "type": "string",
+      "defaultValue": "real",
+      "allowedValues": [
+        "real",
+        "mock"
+      ],
+      "metadata": {
+        "description": "real talks to the live API; mock keeps everything in local table storage (trial)."
+      }
+    },
+    "FormerSyncIntervalMinutes": {
+      "type": "int",
+      "defaultValue": 60,
+      "allowedValues": [
+        5,
+        10,
+        15,
+        30,
+        60,
+        120,
+        240,
+        360,
+        720,
+        1440
+      ],
+      "metadata": {
+        "description": "Former sync interval in minutes. Values over 60 must be whole hours (NCRONTAB step fields)."
+      }
+    },
+    "RunOnStartup": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Run the first former sync right after deployment."
+      }
+    },
+    "IncludeDeletedUsers": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Include soft-deleted Entra users in the former set (V2)."
+      }
+    },
+    "RulesetMode": {
+      "type": "string",
+      "defaultValue": "standart",
+      "allowedValues": [
+        "standart",
+        "strict"
+      ],
+      "metadata": {
+        "description": "standart sends disabled Members to the former list; strict only logs them as review-needed."
+      }
+    },
+    "FormerMaxAdds": {
+      "type": "int",
+      "defaultValue": 500,
+      "metadata": {
+        "description": "Absolute cap on adds per run per company."
+      }
+    },
+    "FormerMaxRemovals": {
+      "type": "int",
+      "defaultValue": 100,
+      "metadata": {
+        "description": "Absolute cap on removals per run per company."
+      }
+    },
+    "FormerMaxRemovalPercent": {
+      "type": "int",
+      "defaultValue": 50,
+      "metadata": {
+        "description": "Removals may not exceed this percentage of the remote list."
+      }
+    },
+    "PackageUri": {
+      "type": "string",
+      "defaultValue": "https://github.com/orcunsami/entra-id-elite/releases/download/v1.0.0/FunctionApp.zip",
+      "metadata": {
+        "description": "URL of the FunctionApp deployment package (zip). Leave empty to deploy infrastructure only and publish code separately."
+      }
+    }
+  },
+  "variables": {
+    "location": "[resourceGroup().location]",
+    "suffix": "[uniqueString(resourceGroup().id)]",
+    "functionAppName": "[format('former-elite-{0}', variables('suffix'))]",
+    "storageAccountName": "[toLower(format('elitesa{0}', variables('suffix')))]",
+    "managedIdentityName": "Elite-Former-MI",
+    "hostingPlanName": "Elite-Former-Plan",
+    "workspaceName": "[format('Elite-Former-LAW-{0}', variables('suffix'))]",
+    "dcrName": "Elite-Former-DCR",
+    "socradarBaseUrl": "[if(equals(parameters('Environment'), 'preprod'), 'https://preprod.socradar.com', 'https://platform.socradar.com')]",
+    "formerSchedule": "[if(less(parameters('FormerSyncIntervalMinutes'), 60), format('0 */{0} * * * *', parameters('FormerSyncIntervalMinutes')), format('0 0 */{0} * * *', div(parameters('FormerSyncIntervalMinutes'), 60)))]",
+    "graphUniqueAppName": "[format('entra-former-{0}', variables('suffix'))]",
+    "eliteGraphRoleIds": [
+      "df021288-bdef-4463-88db-98f22de89214",
+      "7ab1d382-f21e-4acd-a863-ba3e13f7da61"
+    ],
+    "auditColumns": [
+      {
+        "name": "TimeGenerated",
+        "type": "datetime"
+      },
+      {
+        "name": "source",
+        "type": "string"
+      },
+      {
+        "name": "event_type",
+        "type": "string"
+      },
+      {
+        "name": "company_id",
+        "type": "string"
+      },
+      {
+        "name": "mode",
+        "type": "string"
+      },
+      {
+        "name": "apply",
+        "type": "boolean"
+      },
+      {
+        "name": "blocked",
+        "type": "boolean"
+      },
+      {
+        "name": "block_reason",
+        "type": "string"
+      },
+      {
+        "name": "snapshot_complete",
+        "type": "boolean"
+      },
+      {
+        "name": "own_active",
+        "type": "int"
+      },
+      {
+        "name": "own_former",
+        "type": "int"
+      },
+      {
+        "name": "sibling_active",
+        "type": "int"
+      },
+      {
+        "name": "manual",
+        "type": "int"
+      },
+      {
+        "name": "desired",
+        "type": "int"
+      },
+      {
+        "name": "preserve",
+        "type": "int"
+      },
+      {
+        "name": "add_planned",
+        "type": "int"
+      },
+      {
+        "name": "remove_planned",
+        "type": "int"
+      },
+      {
+        "name": "withheld",
+        "type": "int"
+      },
+      {
+        "name": "added",
+        "type": "int"
+      },
+      {
+        "name": "removed",
+        "type": "int"
+      },
+      {
+        "name": "notes",
+        "type": "string"
+      },
+      {
+        "name": "email_sha256",
+        "type": "string"
+      },
+      {
+        "name": "applied",
+        "type": "boolean"
+      },
+      {
+        "name": "tenant_id",
+        "type": "string"
+      },
+      {
+        "name": "details",
+        "type": "string"
+      }
+    ]
+  },
+  "imports": {
+    "microsoftGraphV1_0": {
+      "provider": "MicrosoftGraph",
+      "version": "1.0.0"
+    }
+  },
+  "resources": {
+    "storageAccount": {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2023-05-01",
+      "name": "[variables('storageAccountName')]",
+      "location": "[variables('location')]",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "kind": "StorageV2",
+      "properties": {
+        "minimumTlsVersion": "TLS1_2",
+        "allowBlobPublicAccess": false,
+        "supportsHttpsTrafficOnly": true
+      }
+    },
+    "tableService": {
+      "type": "Microsoft.Storage/storageAccounts/tableServices",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}', variables('storageAccountName'), 'default')]",
+      "dependsOn": [
+        "storageAccount"
+      ]
+    },
+    "stateTables": {
+      "copy": {
+        "name": "stateTables",
+        "count": "[length(createArray('EntraIDState', 'FormerManual', 'FormerOwnership'))]"
+      },
+      "type": "Microsoft.Storage/storageAccounts/tableServices/tables",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}/{2}', variables('storageAccountName'), 'default', createArray('EntraIDState', 'FormerManual', 'FormerOwnership')[copyIndex()])]",
+      "dependsOn": [
+        "tableService"
+      ]
+    },
+    "managedIdentity": {
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+      "apiVersion": "2023-01-31",
+      "name": "[variables('managedIdentityName')]",
+      "location": "[variables('location')]"
+    },
+    "appReg": {
+      "condition": "[parameters('CreateAppRegistration')]",
+      "import": "microsoftGraphV1_0",
+      "type": "Microsoft.Graph/applications@v1.0",
+      "properties": {
+        "uniqueName": "[variables('graphUniqueAppName')]",
+        "displayName": "Entra ID Elite",
+        "signInAudience": "AzureADMultipleOrgs",
+        "requiredResourceAccess": [
+          {
+            "copy": [
+              {
+                "name": "resourceAccess",
+                "count": "[length(variables('eliteGraphRoleIds'))]",
+                "input": {
+                  "id": "[variables('eliteGraphRoleIds')[copyIndex('resourceAccess')]]",
+                  "type": "Role"
+                }
+              }
+            ],
+            "resourceAppId": "00000003-0000-0000-c000-000000000000"
+          }
+        ]
+      }
+    },
+    "appSp": {
+      "condition": "[parameters('CreateAppRegistration')]",
+      "import": "microsoftGraphV1_0",
+      "type": "Microsoft.Graph/servicePrincipals@v1.0",
+      "properties": {
+        "appId": "[reference('appReg').appId]"
+      },
+      "dependsOn": [
+        "appReg"
+      ]
+    },
+    "fic": {
+      "condition": "[parameters('CreateAppRegistration')]",
+      "import": "microsoftGraphV1_0",
+      "type": "Microsoft.Graph/applications/federatedIdentityCredentials@v1.0",
+      "properties": {
+        "name": "[format('{0}/former-elite-uami', reference('appReg').uniqueName)]",
+        "audiences": [
+          "api://AzureADTokenExchange"
+        ],
+        "issuer": "[format('https://login.microsoftonline.com/{0}/v2.0', tenant().tenantId)]",
+        "subject": "[reference('managedIdentity').principalId]"
+      },
+      "dependsOn": [
+        "appReg",
+        "managedIdentity"
+      ]
+    },
+    "graphSpRef": {
+      "condition": "[and(parameters('CreateAppRegistration'), parameters('GrantAdminConsent'))]",
+      "existing": true,
+      "import": "microsoftGraphV1_0",
+      "type": "Microsoft.Graph/servicePrincipals@v1.0",
+      "properties": {
+        "appId": "00000003-0000-0000-c000-000000000000"
+      }
+    },
+    "adminConsentGrants": {
+      "copy": {
+        "name": "adminConsentGrants",
+        "count": "[length(variables('eliteGraphRoleIds'))]"
+      },
+      "condition": "[and(parameters('CreateAppRegistration'), parameters('GrantAdminConsent'))]",
+      "import": "microsoftGraphV1_0",
+      "type": "Microsoft.Graph/appRoleAssignedTo@v1.0",
+      "properties": {
+        "appRoleId": "[variables('eliteGraphRoleIds')[copyIndex()]]",
+        "principalId": "[reference('appSp').id]",
+        "resourceId": "[reference('graphSpRef').id]"
+      },
+      "dependsOn": [
+        "appSp",
+        "graphSpRef"
+      ]
+    },
+    "addFicToExistingApp": {
+      "condition": "[and(not(parameters('CreateAppRegistration')), not(parameters('SkipFicCreation')))]",
+      "type": "Microsoft.Resources/deploymentScripts",
+      "apiVersion": "2020-10-01",
+      "name": "[format('addFic-{0}', variables('suffix'))]",
+      "location": "[variables('location')]",
+      "kind": "AzureCLI",
+      "identity": {
+        "type": "UserAssigned",
+        "userAssignedIdentities": {
+          "[format('{0}', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')))]": {}
+        }
+      },
+      "properties": {
+        "azCliVersion": "2.50.0",
+        "retentionInterval": "PT1H",
+        "timeout": "PT5M",
+        "environmentVariables": [
+          {
+            "name": "APP_ID",
+            "value": "[parameters('EntraIdClientId')]"
+          },
+          {
+            "name": "TENANT_ID",
+            "value": "[subscription().tenantId]"
+          },
+          {
+            "name": "UAMI_PRINCIPAL",
+            "value": "[reference('managedIdentity').principalId]"
+          },
+          {
+            "name": "RG_NAME",
+            "value": "[resourceGroup().name]"
+          }
+        ],
+        "scriptContent": "      FIC_NAME=\"former-elite-${RG_NAME}-uami\"\n      EXISTING=$(az ad app federated-credential list --id \"$APP_ID\" --query \"[?subject=='${UAMI_PRINCIPAL}'].name\" -o tsv 2>/dev/null || echo \"\")\n      if [ -n \"$EXISTING\" ]; then\n        echo \"FIC already exists for UAMI ${UAMI_PRINCIPAL} on app ${APP_ID}: ${EXISTING}\"\n      elif az ad app federated-credential create --id \"$APP_ID\" --parameters \"{\n          \\\"name\\\": \\\"${FIC_NAME}\\\",\n          \\\"issuer\\\": \\\"https://login.microsoftonline.com/${TENANT_ID}/v2.0\\\",\n          \\\"subject\\\": \\\"${UAMI_PRINCIPAL}\\\",\n          \\\"audiences\\\": [\\\"api://AzureADTokenExchange\\\"]\n        }\"; then\n        echo \"FIC added\"\n      else\n        # Fail-soft: the deployment identity (UAMI) usually has no Entra\n        # app-write permission on a foreign App Registration. The app cannot\n        # run until the FIC exists, but failing the whole deployment here\n        # would strand the rest of the install. Surface the exact command.\n        echo \"WARNING: could not add FIC automatically (no Entra app-write permission).\"\n        echo \"Run manually as an owner of the App Registration:\"\n        echo \"az ad app federated-credential create --id ${APP_ID} --parameters '{\\\"name\\\":\\\"${FIC_NAME}\\\",\\\"issuer\\\":\\\"https://login.microsoftonline.com/${TENANT_ID}/v2.0\\\",\\\"subject\\\":\\\"${UAMI_PRINCIPAL}\\\",\\\"audiences\\\":[\\\"api://AzureADTokenExchange\\\"]}'\"\n      fi\n      exit 0\n    "
+      },
+      "dependsOn": [
+        "managedIdentity"
+      ]
+    },
+    "workspace": {
+      "type": "Microsoft.OperationalInsights/workspaces",
+      "apiVersion": "2023-09-01",
+      "name": "[variables('workspaceName')]",
+      "location": "[variables('location')]",
+      "properties": {
+        "sku": {
+          "name": "PerGB2018"
+        },
+        "retentionInDays": 90
+      }
+    },
+    "auditTable": {
+      "type": "Microsoft.OperationalInsights/workspaces/tables",
+      "apiVersion": "2022-10-01",
+      "name": "[format('{0}/{1}', variables('workspaceName'), 'SOCRadar_EntraID_Audit_CL')]",
+      "properties": {
+        "schema": {
+          "name": "SOCRadar_EntraID_Audit_CL",
+          "columns": "[variables('auditColumns')]"
+        }
+      },
+      "dependsOn": [
+        "workspace"
+      ]
+    },
+    "dcr": {
+      "type": "Microsoft.Insights/dataCollectionRules",
+      "apiVersion": "2023-03-11",
+      "name": "[variables('dcrName')]",
+      "location": "[variables('location')]",
+      "kind": "Direct",
+      "properties": {
+        "description": "Entra ID Elite — former sync audit (Logs Ingestion API)",
+        "streamDeclarations": {
+          "Custom-SOCRadar_EntraID_Audit_CL": {
+            "columns": "[variables('auditColumns')]"
+          }
+        },
+        "destinations": {
+          "logAnalytics": [
+            {
+              "workspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('workspaceName'))]",
+              "name": "law"
+            }
+          ]
+        },
+        "dataFlows": [
+          {
+            "streams": [
+              "Custom-SOCRadar_EntraID_Audit_CL"
+            ],
+            "destinations": [
+              "law"
+            ],
+            "transformKql": "source",
+            "outputStream": "Custom-SOCRadar_EntraID_Audit_CL"
+          }
+        ]
+      },
+      "dependsOn": [
+        "auditTable",
+        "workspace"
+      ]
+    },
+    "dcrPublisherRole": {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Insights/dataCollectionRules', variables('dcrName'))]",
+      "name": "[guid(resourceId('Microsoft.Insights/dataCollectionRules', variables('dcrName')), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), 'MonitoringMetricsPublisher')]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '3913510d-42f4-4e42-8a64-420c390055eb')]",
+        "principalId": "[reference('managedIdentity').principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "dcr",
+        "managedIdentity"
+      ]
+    },
+    "tableDataRole": {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), 'StorageTableDataContributor')]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3')]",
+        "principalId": "[reference('managedIdentity').principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "managedIdentity",
+        "storageAccount"
+      ]
+    },
+    "hostingPlan": {
+      "type": "Microsoft.Web/serverfarms",
+      "apiVersion": "2023-12-01",
+      "name": "[variables('hostingPlanName')]",
+      "location": "[variables('location')]",
+      "sku": {
+        "name": "Y1",
+        "tier": "Dynamic"
+      },
+      "kind": "linux",
+      "properties": {
+        "reserved": true
+      }
+    },
+    "appInsights": {
+      "type": "Microsoft.Insights/components",
+      "apiVersion": "2020-02-02",
+      "name": "[variables('functionAppName')]",
+      "location": "[variables('location')]",
+      "kind": "web",
+      "properties": {
+        "Application_Type": "web",
+        "Request_Source": "rest"
+      }
+    },
+    "functionApp": {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2023-12-01",
+      "name": "[variables('functionAppName')]",
+      "location": "[variables('location')]",
+      "kind": "functionapp,linux",
+      "identity": {
+        "type": "UserAssigned",
+        "userAssignedIdentities": {
+          "[format('{0}', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')))]": {}
+        }
+      },
+      "properties": {
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('hostingPlanName'))]",
+        "httpsOnly": true,
+        "siteConfig": {
+          "linuxFxVersion": "Python|3.11",
+          "appSettings": [
+            {
+              "name": "AzureWebJobsStorage",
+              "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};AccountKey={1};EndpointSuffix=core.windows.net', variables('storageAccountName'), listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2023-05-01').keys[0].value)]"
+            },
+            {
+              "name": "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING",
+              "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};AccountKey={1};EndpointSuffix=core.windows.net', variables('storageAccountName'), listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2023-05-01').keys[0].value)]"
+            },
+            {
+              "name": "WEBSITE_CONTENTSHARE",
+              "value": "[toLower(variables('functionAppName'))]"
+            },
+            {
+              "name": "FUNCTIONS_EXTENSION_VERSION",
+              "value": "~4"
+            },
+            {
+              "name": "FUNCTIONS_WORKER_RUNTIME",
+              "value": "python"
+            },
+            {
+              "name": "AzureWebJobsFeatureFlags",
+              "value": "EnableWorkerIndexing"
+            },
+            {
+              "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+              "value": "[reference(resourceId('Microsoft.Insights/components', variables('functionAppName')), '2020-02-02').ConnectionString]"
+            },
+            {
+              "name": "WEBSITE_RUN_FROM_PACKAGE",
+              "value": "[if(empty(parameters('PackageUri')), '1', parameters('PackageUri'))]"
+            },
+            {
+              "name": "FORMER_COMPANY_MAP",
+              "value": "[string(parameters('FormerCompanies').rows)]"
+            },
+            {
+              "name": "SOCRADAR_BASE_URL",
+              "value": "[variables('socradarBaseUrl')]"
+            },
+            {
+              "name": "FORMER_CLIENT_MODE",
+              "value": "[parameters('FormerClientMode')]"
+            },
+            {
+              "name": "FORMER_APPLY_CHANGES",
+              "value": "[string(parameters('FormerApplyChanges'))]"
+            },
+            {
+              "name": "FORMER_SYNC_SCHEDULE",
+              "value": "[variables('formerSchedule')]"
+            },
+            {
+              "name": "FORMER_RUN_ON_STARTUP",
+              "value": "[string(parameters('RunOnStartup'))]"
+            },
+            {
+              "name": "ENABLE_FORMER_SYNC",
+              "value": "true"
+            },
+            {
+              "name": "ENABLE_CROSS_TENANT_SUPPRESS",
+              "value": "true"
+            },
+            {
+              "name": "INCLUDE_DELETED_USERS",
+              "value": "[string(parameters('IncludeDeletedUsers'))]"
+            },
+            {
+              "name": "RULESET_MODE",
+              "value": "[parameters('RulesetMode')]"
+            },
+            {
+              "name": "FORMER_MAX_ADDS",
+              "value": "[string(parameters('FormerMaxAdds'))]"
+            },
+            {
+              "name": "FORMER_MAX_REMOVALS",
+              "value": "[string(parameters('FormerMaxRemovals'))]"
+            },
+            {
+              "name": "FORMER_MAX_REMOVAL_PERCENT",
+              "value": "[string(parameters('FormerMaxRemovalPercent'))]"
+            },
+            {
+              "name": "ENTRA_CLIENT_ID",
+              "value": "[if(parameters('CreateAppRegistration'), reference('appReg').appId, parameters('EntraIdClientId'))]"
+            },
+            {
+              "name": "AZURE_CLIENT_ID",
+              "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2023-01-31').clientId]"
+            },
+            {
+              "name": "POLLING_SCHEDULE",
+              "value": "0 0 3 * * *"
+            },
+            {
+              "name": "ENABLE_BOTNET_SOURCE",
+              "value": "false"
+            },
+            {
+              "name": "ENABLE_PII_SOURCE",
+              "value": "false"
+            },
+            {
+              "name": "ENABLE_VIP_SOURCE",
+              "value": "false"
+            },
+            {
+              "name": "ENABLE_USER_LOOKUP",
+              "value": "false"
+            },
+            {
+              "name": "RUN_ON_STARTUP",
+              "value": "false"
+            },
+            {
+              "name": "SOCRADAR_API_KEY",
+              "value": "unused-former-map-mode"
+            },
+            {
+              "name": "SOCRADAR_COMPANY_ID",
+              "value": "unused-former-map-mode"
+            },
+            {
+              "name": "ENTRA_TENANT_IDS",
+              "value": "[tenant().tenantId]"
+            },
+            {
+              "name": "DCR_IMMUTABLE_ID",
+              "value": "[reference(resourceId('Microsoft.Insights/dataCollectionRules', variables('dcrName')), '2023-03-11').immutableId]"
+            },
+            {
+              "name": "DCR_ENDPOINT",
+              "value": "[reference(resourceId('Microsoft.Insights/dataCollectionRules', variables('dcrName')), '2023-03-11').endpoints.logsIngestion]"
+            },
+            {
+              "name": "WORKSPACE_ID",
+              "value": "[reference(resourceId('Microsoft.OperationalInsights/workspaces', variables('workspaceName')), '2023-09-01').customerId]"
+            },
+            {
+              "name": "STORAGE_ACCOUNT_NAME",
+              "value": "[variables('storageAccountName')]"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "appInsights",
+        "appReg",
+        "dcr",
+        "hostingPlan",
+        "managedIdentity",
+        "storageAccount",
+        "tableDataRole",
+        "workspace"
+      ]
+    },
+    "triggerFirstRun": {
+      "condition": "[and(not(empty(parameters('PackageUri'))), parameters('RunOnStartup'))]",
+      "type": "Microsoft.Resources/deploymentScripts",
+      "apiVersion": "2020-10-01",
+      "name": "[format('triggerFirstRun-{0}', variables('suffix'))]",
+      "location": "[variables('location')]",
+      "kind": "AzureCLI",
+      "identity": {
+        "type": "UserAssigned",
+        "userAssignedIdentities": {
+          "[format('{0}', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')))]": {}
+        }
+      },
+      "properties": {
+        "azCliVersion": "2.50.0",
+        "retentionInterval": "PT1H",
+        "timeout": "PT15M",
+        "scriptContent": "sleep 30 && az functionapp restart --name $FA_NAME --resource-group $RG_NAME && echo restarted",
+        "environmentVariables": [
+          {
+            "name": "FA_NAME",
+            "value": "[variables('functionAppName')]"
+          },
+          {
+            "name": "RG_NAME",
+            "value": "[resourceGroup().name]"
+          }
+        ]
+      },
+      "dependsOn": [
+        "faContributorRole",
+        "functionApp",
+        "managedIdentity"
+      ]
+    },
+    "faContributorRole": {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Web/sites', variables('functionAppName'))]",
+      "name": "[guid(resourceId('Microsoft.Web/sites', variables('functionAppName')), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), 'WebsiteContributor')]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'de139f84-1756-47ae-9be6-808fbbe84772')]",
+        "principalId": "[reference('managedIdentity').principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "functionApp",
+        "managedIdentity"
+      ]
+    }
+  },
+  "outputs": {
+    "functionAppName": {
+      "type": "string",
+      "value": "[variables('functionAppName')]"
+    },
+    "previewUrl": {
+      "type": "string",
+      "value": "[format('https://{0}.azurewebsites.net/api/former/preview?code=<function-key>', variables('functionAppName'))]"
+    },
+    "entraClientId": {
+      "type": "string",
+      "value": "[if(parameters('CreateAppRegistration'), reference('appReg').appId, parameters('EntraIdClientId'))]"
+    },
+    "workspaceName": {
+      "type": "string",
+      "value": "[variables('workspaceName')]"
+    },
+    "consentNote": {
+      "type": "string",
+      "value": "[if(and(parameters('CreateAppRegistration'), not(parameters('GrantAdminConsent'))), 'Grant admin consent to the new App Registration (Entra portal > App registrations > Entra ID Elite > API permissions), and consent it in every sibling tenant.', 'Consent handled (existing app or automated grant). Sibling tenants still need the multi-tenant app consented once each.')]"
+    },
+    "ficNote": {
+      "type": "string",
+      "value": "[if(parameters('CreateAppRegistration'), 'FIC created automatically.', if(parameters('SkipFicCreation'), 'FIC skipped — add it manually for the UAMI principal.', 'FIC added to the existing App Registration by deployment script.'))]"
+    }
+  }
+}

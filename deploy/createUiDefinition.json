@@ -1,0 +1,231 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/0.1.2-preview/CreateUIDefinition.MultiVm.json#",
+  "handler": "Microsoft.Azure.CreateUIDef",
+  "version": "0.1.2-preview",
+  "parameters": {
+    "basics": [
+      {
+        "name": "aboutText",
+        "type": "Microsoft.Common.TextBlock",
+        "visible": true,
+        "options": {
+          "text": "This solution suppresses false-positive leak alarms for former employees. One deployment manages every company in your corporate group: each company's group tenants are derived automatically from the other rows. The deployment ships in plan-only mode — nothing is written until you enable apply. This template deploys the infrastructure; the function code package is published in a follow-up step (see the README)."
+        }
+      }
+    ],
+    "steps": [
+      {
+        "name": "socradar",
+        "label": "Companies",
+        "elements": [
+          {
+            "name": "environment",
+            "type": "Microsoft.Common.DropDown",
+            "label": "Environment",
+            "defaultValue": "Platform (production)",
+            "toolTip": "Platform is the production environment. Preprod is the staging platform for trials.",
+            "constraints": {
+              "allowedValues": [
+                { "label": "Platform (production)", "value": "platform" },
+                { "label": "Preprod (staging)", "value": "preprod" }
+              ],
+              "required": true
+            }
+          },
+          {
+            "name": "companiesInfo",
+            "type": "Microsoft.Common.TextBlock",
+            "visible": true,
+            "options": {
+              "text": "Enter YOUR OWN company in the first row, then one row for each other company in the corporate group. (Row order does not change the behavior — every company's former list receives the other rows' employees — it just keeps the form readable.) Tenant IDs is a comma-separated list of that company's OWN Entra tenant GUIDs. API key: that company's own platform API key. Actor email: an existing platform user of that company — the API records every add and remove under this user, so an address that does not belong to the company is rejected. A row without an actor email stays plan-only but is still previewed; a row without an API key shows as an error in the preview until the key is added."
+            }
+          },
+          {
+            "name": "companies",
+            "type": "Microsoft.Common.EditableGrid",
+            "ariaLabel": "Companies",
+            "label": "Companies",
+            "constraints": {
+              "width": "Full",
+              "rows": { "count": { "min": 1, "max": 20 } },
+              "columns": [
+                {
+                  "id": "companyId",
+                  "header": "Company ID",
+                  "width": "1fr",
+                  "element": {
+                    "type": "Microsoft.Common.TextBox",
+                    "placeholder": "12345",
+                    "constraints": {
+                      "required": true,
+                      "regex": "^[0-9A-Za-z_-]{1,64}$",
+                      "validationMessage": "Digits, letters, dash and underscore only."
+                    }
+                  }
+                },
+                {
+                  "id": "tenantIds",
+                  "header": "Own tenant IDs (comma-separated)",
+                  "width": "2fr",
+                  "element": {
+                    "type": "Microsoft.Common.TextBox",
+                    "placeholder": "00000000-0000-0000-0000-000000000000, ...",
+                    "constraints": {
+                      "required": true,
+                      "regex": "^\\s*[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(\\s*,\\s*[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})*\\s*$",
+                      "validationMessage": "One or more tenant GUIDs, comma-separated."
+                    }
+                  }
+                },
+                {
+                  "id": "apiKey",
+                  "header": "API key",
+                  "width": "2fr",
+                  "element": {
+                    "type": "Microsoft.Common.TextBox",
+                    "placeholder": "(empty = plan-only)",
+                    "constraints": { "required": false }
+                  }
+                },
+                {
+                  "id": "actorEmail",
+                  "header": "Actor email",
+                  "width": "2fr",
+                  "element": {
+                    "type": "Microsoft.Common.TextBox",
+                    "placeholder": "platform user of this company",
+                    "constraints": {
+                      "required": false,
+                      "regex": "^$|^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+                      "validationMessage": "A valid email address, or leave empty for plan-only."
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "keyNote",
+            "type": "Microsoft.Common.TextBlock",
+            "visible": true,
+            "options": {
+              "text": "API keys entered here are stored as Function App application settings (encrypted at rest). For Key Vault-backed keys deploy with an empty key and set an api_key_setting reference afterwards — see the README."
+            }
+          }
+        ]
+      },
+      {
+        "name": "entra",
+        "label": "Entra ID access",
+        "elements": [
+          {
+            "name": "appRegChoice",
+            "type": "Microsoft.Common.OptionsGroup",
+            "label": "App Registration",
+            "defaultValue": "Create new automatically",
+            "toolTip": "The engine reads Entra users through a multi-tenant App Registration with User.Read.All + Directory.Read.All. Creating a new one needs the Application Administrator role; without it choose the existing-app option.",
+            "constraints": {
+              "allowedValues": [
+                { "label": "Create new automatically", "value": "create" },
+                { "label": "Use an existing App Registration", "value": "existing" }
+              ],
+              "required": true
+            }
+          },
+          {
+            "name": "existingClientId",
+            "type": "Microsoft.Common.TextBox",
+            "label": "Existing App Registration client ID",
+            "toolTip": "After deployment, one extra step: an owner of this App Registration runs a single command (shown in the deployment's Outputs tab) to trust the new managed identity. With 'Create new automatically' this step does not exist.",
+            "visible": "[equals(steps('entra').appRegChoice, 'existing')]",
+            "constraints": {
+              "required": "[equals(steps('entra').appRegChoice, 'existing')]",
+              "regex": "^[0-9a-fA-F-]{36}$",
+              "validationMessage": "Application (client) ID GUID."
+            }
+          },
+          {
+            "name": "grantConsent",
+            "type": "Microsoft.Common.CheckBox",
+            "label": "Grant admin consent automatically (needs Global Administrator or Privileged Role Administrator)",
+            "visible": "[equals(steps('entra').appRegChoice, 'create')]"
+          },
+          {
+            "name": "consentNote",
+            "type": "Microsoft.Common.TextBlock",
+            "visible": true,
+            "options": {
+              "text": "Leave this off unless you hold one of those roles — a failed consent call fails the whole deployment. Consent is still required either way: grant it afterwards under Entra ID > App registrations > API permissions. The multi-tenant app must also be consented once in every sibling tenant listed in the grid; the deployment output includes the exact note for your setup."
+            }
+          }
+        ]
+      },
+      {
+        "name": "behavior",
+        "label": "Behavior",
+        "elements": [
+          {
+            "name": "applyChanges",
+            "type": "Microsoft.Common.CheckBox",
+            "label": "Apply changes",
+            "toolTip": "On: keeps the former-employee lists in sync automatically. Off: plan-only trial — reads and previews, writes nothing. Safe by design: only entries this app created are ever managed.",
+            "defaultValue": true
+          },
+          {
+            "name": "clientMode",
+            "type": "Microsoft.Common.DropDown",
+            "label": "Client mode",
+            "defaultValue": "Real (live API)",
+            "toolTip": "Real: works against the live platform (normal use). Mock: a self-contained trial — nothing leaves Azure, data is kept in the app's own storage.",
+            "constraints": {
+              "allowedValues": [
+                { "label": "Real (live API)", "value": "real" },
+                { "label": "Mock (local trial, no live API calls)", "value": "mock" }
+              ],
+              "required": true
+            }
+          },
+          {
+            "name": "syncInterval",
+            "type": "Microsoft.Common.DropDown",
+            "label": "Sync interval",
+            "defaultValue": "Every hour",
+            "toolTip": "How often the former sync reconciles each company.",
+            "constraints": {
+              "allowedValues": [
+                { "label": "Every 5 minutes", "value": "5" },
+                { "label": "Every 15 minutes", "value": "15" },
+                { "label": "Every 30 minutes", "value": "30" },
+                { "label": "Every hour", "value": "60" },
+                { "label": "Every 6 hours", "value": "360" },
+                { "label": "Every 12 hours", "value": "720" },
+                { "label": "Daily", "value": "1440" }
+              ],
+              "required": true
+            }
+          },
+          {
+            "name": "includeDeleted",
+            "type": "Microsoft.Common.CheckBox",
+            "label": "Include soft-deleted users (V2)",
+            "toolTip": "A user deleted from Entra ID stays recoverable for 30 days. On (recommended): those recently deleted users also count as former employees. Off: only disabled accounts count.",
+            "defaultValue": true
+          }
+        ]
+      }
+    ],
+    "outputs": {
+      "FormerCompanies": {
+        "rows": "[steps('socradar').companies]"
+      },
+      "Environment": "[steps('socradar').environment]",
+      "EntraIdClientId": "[if(equals(steps('entra').appRegChoice, 'existing'), steps('entra').existingClientId, '')]",
+      "CreateAppRegistration": "[equals(steps('entra').appRegChoice, 'create')]",
+      "GrantAdminConsent": "[and(equals(steps('entra').appRegChoice, 'create'), steps('entra').grantConsent)]",
+      "FormerApplyChanges": "[steps('behavior').applyChanges]",
+      "FormerClientMode": "[steps('behavior').clientMode]",
+      "FormerSyncIntervalMinutes": "[int(steps('behavior').syncInterval)]",
+      "IncludeDeletedUsers": "[steps('behavior').includeDeleted]"
+    }
+  }
+}
