@@ -6,7 +6,7 @@ list receives the active members of the sibling tenants (cross-tenant
 suppression) plus its own disabled and deleted members, and never an active
 own employee.
 
-[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Forcunsami%2Fentra-id-elite%2Fmaster%2Fdeploy%2Fazuredeploy.json/createUIDefinitionUri/https%3A%2F%2Fraw.githubusercontent.com%2Forcunsami%2Fentra-id-elite%2Fmaster%2Fdeploy%2FcreateUiDefinition.json)
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2FRadargoger%2Fentra-id-elite%2Fmaster%2Fdeploy%2Fazuredeploy.json/createUIDefinitionUri/https%3A%2F%2Fraw.githubusercontent.com%2FRadargoger%2Fentra-id-elite%2Fmaster%2Fdeploy%2FcreateUiDefinition.json)
 
 Runs as an Azure Function App. Syncing starts right after deployment;
 for a read-only trial turn off Apply changes in the form (plan-only mode).
