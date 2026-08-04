@@ -24,7 +24,7 @@ from sources import botnet  # noqa: E402
 def _conf(**over):
     conf = {
         "storage_account_name": "sa",
-        "socradar_api_key": "k", "socradar_company_id": "330",
+        "socradar_api_key": "k", "socradar_company_id": "1234567",
         "socradar_base_url": "https://example.invalid",
         "enable_user_lookup": False,
         "verified_domains": [],
@@ -134,7 +134,7 @@ class SlotSplitTest(unittest.TestCase):
              mock.patch.object(function_app.law, "write_records"), \
              mock.patch.object(function_app.entra, "lookup_user", return_value=(None, 404)):
             function_app._process_source("botnet", conf, None, {"t": {"h": "x"}},
-                                         deadline=slot_deadline, checkpoint_key="botnet:330")
+                                         deadline=slot_deadline, checkpoint_key="botnet:1234567")
         seen["slot_deadline"] = slot_deadline
         return seen
 

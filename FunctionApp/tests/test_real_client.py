@@ -41,7 +41,7 @@ def make_client():
     return RealFormerListClient(
         base_url="https://platform.socradar.com",
         api_key="test-key",
-        company_id="330",
+        company_id="1234567",
         actor_email="actor@company.com",
         list_path="/api/company/{company_id}/dark-web-monitoring/former-employees",
         add_path="/api/company/{company_id}/dark-web-monitoring/add-former-employee",
@@ -79,7 +79,7 @@ class TestRealClient(unittest.TestCase):
         self.assertEqual(done, 3)
         self.assertEqual(len(calls), 2)  # batch_size=2 -> 2+1
         url, body, headers = calls[0]
-        self.assertIn("/api/company/330/dark-web-monitoring/add-former-employee", url)
+        self.assertIn("/api/company/1234567/dark-web-monitoring/add-former-employee", url)
         self.assertEqual(body, {"formerEmployees": ["e1@x.com", "e2@x.com"],
                                 "comment": "elite-sync", "email": "actor@company.com"})
         # Cloudflare bot-block (preprod error 1010): an explicit UA is required, the default python UA is not enough
@@ -92,7 +92,7 @@ class TestRealClient(unittest.TestCase):
             self.assertEqual(make_client().add(["e1@x.com"], source="s"), 0)
 
     def test_add_duplicate_rejection_counts_as_done(self):
-        """Observed live (2026-08-01, company 330): re-adding a stored address
+        """Observed live (2026-08-01): re-adding a stored address
         returns is_success=false with this message. The desired state — address
         on the list — already holds, so it is done, not an error. Before this,
         every reconcile after the first successful add logged an ERROR forever,

@@ -16,7 +16,7 @@ import function_app  # noqa: E402
 
 
 MAP = json.dumps([
-    {"companyId": "330", "tenantIds": "tenant-A", "apiKey": "kA", "actorEmail": "a@x.com"},
+    {"companyId": "1234567", "tenantIds": "tenant-A", "apiKey": "kA", "actorEmail": "a@x.com"},
     {"companyId": "440", "tenantIds": "tenant-B", "apiKey": "kB", "actorEmail": "b@x.com"},
 ])
 
@@ -94,7 +94,7 @@ def _payload(resp):
 
 class ProbeIsolationTest(unittest.TestCase):
     def test_company_finds_person_in_its_own_tenant(self):
-        payload, asked = _run_probe("probe@x.com", "330")
+        payload, asked = _run_probe("probe@x.com", "1234567")
         self.assertTrue(payload["found"])
         self.assertEqual(payload["found_in_tenant"], "tenant-A")
         self.assertEqual(payload["tenants_searched"], ["tenant-A"])
@@ -110,7 +110,7 @@ class ProbeIsolationTest(unittest.TestCase):
         self.assertEqual(payload["would_run"], [])
 
     def test_global_tenant_setting_is_never_used(self):
-        _, asked = _run_probe("probe@x.com", "330")
+        _, asked = _run_probe("probe@x.com", "1234567")
         self.assertNotIn("tenant-GLOBAL", [t for t, _ in asked])
 
     def test_unknown_company_is_rejected(self):
@@ -128,8 +128,8 @@ class ProbeCarriesTheSameBrakesAsTheTimer(unittest.TestCase):
         from actions.action_ledger import InMemoryActionLedger
         ledger = InMemoryActionLedger()
 
-        first, _ = _run_probe("probe@x.com", "330", apply=True, ledger=ledger)
-        second, _ = _run_probe("probe@x.com", "330", apply=True, ledger=ledger)
+        first, _ = _run_probe("probe@x.com", "1234567", apply=True, ledger=ledger)
+        second, _ = _run_probe("probe@x.com", "1234567", apply=True, ledger=ledger)
 
         self.assertEqual(first["applied"], ["revoke_session"])
         self.assertEqual(first["_revoke_calls"], 1)
@@ -138,7 +138,7 @@ class ProbeCarriesTheSameBrakesAsTheTimer(unittest.TestCase):
 
     def test_an_address_outside_the_allowlist_is_not_acted_on(self):
         env = _env(ENTRA_ID_VERIFIED_DOMAINS="contoso.com")
-        payload, _ = _run_probe("probe@x.com", "330", env=env, apply=True)
+        payload, _ = _run_probe("probe@x.com", "1234567", env=env, apply=True)
 
         self.assertEqual(payload["apply_reason"],
                          "address is outside the verified-domain allowlist")
@@ -148,18 +148,18 @@ class ProbeCarriesTheSameBrakesAsTheTimer(unittest.TestCase):
 
     def test_an_allowlisted_address_still_goes_through(self):
         env = _env(ENTRA_ID_VERIFIED_DOMAINS="x.com")
-        payload, _ = _run_probe("probe@x.com", "330", env=env, apply=True)
+        payload, _ = _run_probe("probe@x.com", "1234567", env=env, apply=True)
         self.assertEqual(payload["applied"], ["revoke_session"])
 
     def test_the_change_reaches_the_audit_trail(self):
         calls = []
-        _run_probe("probe@x.com", "330", apply=True, law_calls=calls)
+        _run_probe("probe@x.com", "1234567", apply=True, law_calls=calls)
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][1].get("event_type"), "leak_probe_applied")
 
     def test_a_read_only_probe_writes_no_audit_event(self):
         calls = []
-        _run_probe("probe@x.com", "330", apply=False, law_calls=calls)
+        _run_probe("probe@x.com", "1234567", apply=False, law_calls=calls)
         self.assertEqual(calls, [])
 
 
@@ -167,21 +167,21 @@ class ProbeApplyGatesTest(unittest.TestCase):
     """Responding needs all three consents. Any one missing keeps it read-only."""
 
     def test_all_three_gates_open_applies(self):
-        payload, _ = _run_probe("probe@x.com", "330", apply=True)
+        payload, _ = _run_probe("probe@x.com", "1234567", apply=True)
         self.assertEqual(payload["apply_reason"], "applied")
         self.assertEqual(payload["applied"], ["revoke_session"])
         self.assertTrue(payload["mutated"])
         self.assertEqual(payload["_revoke_calls"], 1)
 
     def test_plan_mode_blocks_apply(self):
-        payload, _ = _run_probe("probe@x.com", "330",
+        payload, _ = _run_probe("probe@x.com", "1234567",
                                 env=_env(ENTRA_ACTION_MODE="plan"), apply=True)
         self.assertEqual(payload["apply_reason"], "deployment is in plan mode")
         self.assertFalse(payload["mutated"])
         self.assertEqual(payload["_revoke_calls"], 0)
 
     def test_request_must_ask_for_it(self):
-        payload, _ = _run_probe("probe@x.com", "330")  # no apply field
+        payload, _ = _run_probe("probe@x.com", "1234567")  # no apply field
         self.assertEqual(payload["apply_reason"], "request did not ask to apply")
         self.assertFalse(payload["mutated"])
         self.assertEqual(payload["_revoke_calls"], 0)
@@ -198,7 +198,7 @@ class ProbeApplyGatesTest(unittest.TestCase):
 
     def test_irreversible_actions_stay_with_the_timer(self):
         payload, _ = _run_probe(
-            "probe@x.com", "330",
+            "probe@x.com", "1234567",
             env=_env(ENABLE_DISABLE_ACCOUNT="true",
                      ENABLE_FORCE_MFA_REREGISTRATION="true"),
             apply=True)
@@ -226,7 +226,7 @@ class ProbeSaysWhetherItLookedAtAll(unittest.TestCase):
              mock.patch.object(function_app, "_acquire_tenant_tokens",
                                side_effect=lambda c, cid: {}):
             resp = function_app.leak_probe(
-                _Req({"email": "probe@x.com", "company_id": "330"}))
+                _Req({"email": "probe@x.com", "company_id": "1234567"}))
         return json.loads(resp.get_body() if hasattr(resp, "get_body") else resp.body)
 
     def test_nothing_searched_is_not_reported_as_not_found(self):
@@ -252,7 +252,7 @@ class ProbeSaysWhetherItLookedAtAll(unittest.TestCase):
     def test_a_real_miss_still_says_not_found(self):
         # Guards the change: the honest negative must survive, or the fix would
         # have traded one wrong message for another.
-        d, asked = _run_probe("nobody@x.com", "330")
+        d, asked = _run_probe("nobody@x.com", "1234567")
         self.assertTrue(asked, "the fixture never searched, so this proves nothing")
         self.assertEqual(d["apply_reason"], "not found in this company's own tenants")
 

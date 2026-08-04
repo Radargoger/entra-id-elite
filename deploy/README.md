@@ -47,7 +47,7 @@ poor place for those.
 cat > params.json <<'JSON'
 {
   "FormerCompanies": { "value": { "rows": [
-    { "companyId": "330", "tenantIds": "<guid>",
+    { "companyId": "1234567", "tenantIds": "<guid>",
       "apiKey": "<key>", "actorEmail": "user@company.com" }
   ] } },
   "Environment": { "value": "platform" },
@@ -81,7 +81,7 @@ infrastructure only.
 ## Key Vault keys
 
 Deploy a row with an empty key, then set an app setting the map can
-reference: change the row to `"api_key_setting": "FORMER_KEY_330"` and add
-`FORMER_KEY_330` as a Key Vault reference app setting. Until the reference
+reference: change the row to `"api_key_setting": "FORMER_KEY_1234567"` and add
+`FORMER_KEY_1234567` as a Key Vault reference app setting. Until the reference
 is in place that company appears as an error in the preview — real mode
 needs the key even to read the list.

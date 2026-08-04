@@ -34,19 +34,19 @@ STATS = {"own_active": 5, "own_former": 2, "sibling_active": 3, "manual": 1,
 class AuditRowTests(unittest.TestCase):
 
     def test_summary_row_first_with_counts(self):
-        rows = build_former_audit_rows("330", STATS, _plan(),
+        rows = build_former_audit_rows("1234567", STATS, _plan(),
                                        {"applied": True, "added": 1, "removed": 1},
                                        "real", True)
         head = rows[0]
         self.assertEqual(head["event_type"], "former_reconcile_summary")
-        self.assertEqual(head["company_id"], "330")
+        self.assertEqual(head["company_id"], "1234567")
         self.assertEqual(head["add_planned"], 1)
         self.assertEqual(head["remove_planned"], 1)
         self.assertEqual(head["withheld"], 1)
         self.assertEqual(head["preserve"], 2)
 
     def test_one_row_per_action_with_hash(self):
-        rows = build_former_audit_rows("330", STATS, _plan(),
+        rows = build_former_audit_rows("1234567", STATS, _plan(),
                                        {"applied": True, "added": 1, "removed": 1},
                                        "real", True)
         actions = rows[1:]
@@ -58,7 +58,7 @@ class AuditRowTests(unittest.TestCase):
         self.assertFalse(by_type["former_removal_withheld"]["applied"])
 
     def test_no_clear_email_anywhere_in_audit(self):
-        rows = build_former_audit_rows("330", STATS, _plan(),
+        rows = build_former_audit_rows("1234567", STATS, _plan(),
                                        {"applied": False, "added": 0, "removed": 0},
                                        "mock", False)
         dump = json.dumps(rows)
@@ -66,7 +66,7 @@ class AuditRowTests(unittest.TestCase):
             self.assertNotIn(email, dump)
 
     def test_plan_only_marks_nothing_applied(self):
-        rows = build_former_audit_rows("330", STATS, _plan(),
+        rows = build_former_audit_rows("1234567", STATS, _plan(),
                                        {"applied": False, "added": 0, "removed": 0},
                                        "mock", False)
         self.assertTrue(all(not r["applied"] for r in rows[1:]))
@@ -74,7 +74,7 @@ class AuditRowTests(unittest.TestCase):
 
 class PreviewTests(unittest.TestCase):
 
-    FCONF = {"socradar_company_id": "330", "former_client_mode": "mock",
+    FCONF = {"socradar_company_id": "1234567", "former_client_mode": "mock",
              "former_apply_changes": False, "ruleset_mode": "standard"}
 
     def _payload(self, plan=None, populations=None):

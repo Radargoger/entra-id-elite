@@ -94,7 +94,7 @@ class RecordWithoutAnAddressIsStillAudited(unittest.TestCase):
 
     def _rows(self, employees):
         conf = {
-            "socradar_company_id": "330", "socradar_api_key": "k",
+            "socradar_company_id": "1234567", "socradar_api_key": "k",
             "socradar_base_url": "https://example.invalid",
             "dcr_immutable_id": "dcr-1",
             "dcr_endpoint": "https://example.ingest.monitor.azure.com",
@@ -118,7 +118,7 @@ class RecordWithoutAnAddressIsStillAudited(unittest.TestCase):
              mock.patch.object(law_writer, "_upload", return_value=True) as up:
             function_app._process_source(
                 "vip", conf, None, {"t-a": {"Authorization": "x"}},
-                deadline=float("inf"), checkpoint_key="vip:330")
+                deadline=float("inf"), checkpoint_key="vip:1234567")
         stream = law_writer.STREAM_MAP["vip"]
         calls = [c for c in up.call_args_list if c[0][1] == stream]
         rows = calls[0][0][2] if calls else []
@@ -126,7 +126,7 @@ class RecordWithoutAnAddressIsStillAudited(unittest.TestCase):
 
     def _employee(self, email):
         return {
-            "email": email, "company_id": "330", "source": "vip",
+            "email": email, "company_id": "1234567", "source": "vip",
             "is_employee": True, "alarm_id": 1, "vip_name": "Emma Taylor",
             "password_present": False, "password_masked": None,
             "is_plaintext": False,
@@ -154,7 +154,7 @@ class RecordWithoutAnAddressIsStillAudited(unittest.TestCase):
         attached when the record was handed over. This looks at the handover.
         """
         conf = {
-            "socradar_company_id": "330", "socradar_api_key": "k",
+            "socradar_company_id": "1234567", "socradar_api_key": "k",
             "socradar_base_url": "https://example.invalid",
             "dcr_immutable_id": "dcr-1",
             "dcr_endpoint": "https://example.ingest.monitor.azure.com",
@@ -184,7 +184,7 @@ class RecordWithoutAnAddressIsStillAudited(unittest.TestCase):
              mock.patch.object(function_app.law, "write_audit"):
             function_app._process_source(
                 "botnet", conf, None, {"t-a": {"Authorization": "x"}},
-                deadline=float("inf"), checkpoint_key="botnet:330")
+                deadline=float("inf"), checkpoint_key="botnet:1234567")
         return (seen.get("records") or [None])[0]
 
     def test_a_record_with_no_address_does_not_carry_the_plaintext_onward(self):
@@ -194,7 +194,7 @@ class RecordWithoutAnAddressIsStillAudited(unittest.TestCase):
         # plaintext travels on inside the record for every later handler and
         # log line to pick up.
         rec = self._appended_record({
-            "email": "", "company_id": "330", "source": "botnet",
+            "email": "", "company_id": "1234567", "source": "botnet",
             "is_employee": True, "alarm_id": 1,
             "password_present": True, "password_masked": "a***3",
             "is_plaintext": True,
@@ -220,7 +220,7 @@ class AFirstRunThatHoldsRemembersIt(unittest.TestCase):
 
     def _save_calls(self, prior_checkpoint):
         conf = {
-            "socradar_company_id": "330", "socradar_api_key": "k",
+            "socradar_company_id": "1234567", "socradar_api_key": "k",
             "socradar_base_url": "https://example.invalid",
             "dcr_immutable_id": "dcr-1",
             "dcr_endpoint": "https://example.ingest.monitor.azure.com",
@@ -237,7 +237,7 @@ class AFirstRunThatHoldsRemembersIt(unittest.TestCase):
             "max_pages_per_run": 50,
         }
         employees = [{
-            "email": "a@x.invalid", "company_id": "330", "source": "botnet",
+            "email": "a@x.invalid", "company_id": "1234567", "source": "botnet",
             "is_employee": True, "alarm_id": 1,
             "password_present": True, "password_masked": "a***3",
             "is_plaintext": False,
@@ -252,7 +252,7 @@ class AFirstRunThatHoldsRemembersIt(unittest.TestCase):
              mock.patch.object(law_writer, "_upload", return_value=True):
             function_app._process_source(
                 "botnet", conf, None, {"t-a": {"Authorization": "x"}},
-                deadline=float("inf"), checkpoint_key="botnet:330")
+                deadline=float("inf"), checkpoint_key="botnet:1234567")
         return save.call_args_list
 
     def test_a_held_first_run_persists_the_holds_counter(self):

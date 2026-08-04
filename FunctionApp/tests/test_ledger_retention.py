@@ -169,14 +169,14 @@ def _table_ledger(rows, fail_on=()):
     purpose: the real one opens a TableServiceClient."""
     ledger = object.__new__(led.ActionLedger)
     ledger._table = _FakeTable(rows, fail_on=fail_on)
-    ledger._partition = "botnet:330"
+    ledger._partition = "botnet:1234567"
     return ledger
 
 
 class TablePurgeTest(unittest.TestCase):
 
     def _rows(self, n):
-        return [{"PartitionKey": "botnet:330", "RowKey": f"rk{i}"}
+        return [{"PartitionKey": "botnet:1234567", "RowKey": f"rk{i}"}
                 for i in range(n)]
 
     def test_query_is_scoped_to_this_partition_and_older_windows(self):
@@ -185,7 +185,7 @@ class TablePurgeTest(unittest.TestCase):
         ledger = _table_ledger(self._rows(1))
         ledger.purge_before("2026-04-30")
         query = ledger._table.queries[0]
-        self.assertIn("PartitionKey eq 'botnet:330'", query)
+        self.assertIn("PartitionKey eq 'botnet:1234567'", query)
         self.assertIn("window_date lt '2026-04-30'", query)
 
     def test_every_returned_row_is_deleted(self):
@@ -208,7 +208,7 @@ class TablePurgeTest(unittest.TestCase):
 def _conf(**over):
     conf = {
         "storage_account_name": "sa",
-        "socradar_api_key": "k", "socradar_company_id": "330",
+        "socradar_api_key": "k", "socradar_company_id": "1234567",
         "socradar_base_url": "https://example.invalid",
         "enable_user_lookup": True, "verified_domains": [],
         "enable_create_incident": False, "enable_resolve_alarm": False,
@@ -255,7 +255,7 @@ def _run(conf, ledger):
                            return_value=ledger):
         return function_app._process_source(
             "botnet", conf, None, {"t-a": {"h": "x"}},
-            deadline=float("inf"), checkpoint_key="botnet:330")
+            deadline=float("inf"), checkpoint_key="botnet:1234567")
 
 
 class RunWiringTest(unittest.TestCase):

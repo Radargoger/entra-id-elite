@@ -2,13 +2,13 @@
 Multi-company (Topology 2) parsing and composition for the Former Employee
 sync (pure logic, no I/O).
 
-Topology 2 (2026-07-25, corporate-group example — company A 330/te330,
+Topology 2 (2026-07-25, corporate-group example — company A 1234567/te1234567,
 B 440/te440, C 550/te550 in ONE deployment): FORMER_COMPANY_MAP is a
 JSON app setting with one row per SOCRadar company:
 
-    [{"company_id": "330",
+    [{"company_id": "1234567",
       "own_tenants": ["<tenant-guid>", ...],
-      "api_key": "...",                    # or api_key_setting: "FORMER_KEY_330"
+      "api_key": "...",                    # or api_key_setting: "FORMER_KEY_1234567"
       "actor_email": "person@company.com"},
      ...]
 

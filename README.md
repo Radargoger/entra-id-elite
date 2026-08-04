@@ -66,7 +66,7 @@ writes by setting `FORMER_APPLY_CHANGES=true`.
 
 ```
 POST /api/former/manual?code=<function-key>
-{"action": "add", "emails": ["person@company.com"], "company_id": "330"}
+{"action": "add", "emails": ["person@company.com"], "company_id": "1234567"}
 ```
 
 Manual entries survive reconciles until removed with `action: remove`.

@@ -201,7 +201,7 @@ class RealFormerListClient:
         return emails
 
     # The platform's add endpoint rejects a duplicate with is_success=false and
-    # this message (observed live, 2026-08-01, company 330). The state we were
+    # this message (observed live, 2026-08-01). The state we were
     # asked to reach — address on the list — already holds, so it counts as
     # done, exactly like a 404 on delete. Without this, every reconcile after
     # the first successful add logged an ERROR forever, because the list
@@ -246,7 +246,7 @@ class RealFormerListClient:
                 done += len(chunk)
             elif missing_ok and resp.status_code == 404:
                 # delete: HTML 404. Originally read as "no matching entry", but
-                # observed live (2026-08-01, company 330): the delete route can
+                # observed live (2026-08-01): the delete route can
                 # 404 while the record demonstrably exists — the add endpoint
                 # still rejects it as a duplicate afterwards. A 404 therefore
                 # proves nothing about the record. Counting it done keeps

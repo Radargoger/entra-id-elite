@@ -32,37 +32,37 @@ class LeaseLockTests(unittest.TestCase):
         InMemoryLeaseLock._locks.clear()
 
     def test_acquire_then_conflict(self):
-        a = InMemoryLeaseLock("330", holder="timer")
-        b = InMemoryLeaseLock("330", holder="manual")
+        a = InMemoryLeaseLock("1234567", holder="timer")
+        b = InMemoryLeaseLock("1234567", holder="manual")
         self.assertTrue(a.acquire())
         self.assertFalse(b.acquire())  # held -> second writer refused
 
     def test_different_companies_independent(self):
-        a = InMemoryLeaseLock("330", holder="timer")
+        a = InMemoryLeaseLock("1234567", holder="timer")
         b = InMemoryLeaseLock("440", holder="timer")
         self.assertTrue(a.acquire())
         self.assertTrue(b.acquire())
 
     def test_release_frees_lease(self):
-        a = InMemoryLeaseLock("330", holder="timer")
-        b = InMemoryLeaseLock("330", holder="manual")
+        a = InMemoryLeaseLock("1234567", holder="timer")
+        b = InMemoryLeaseLock("1234567", holder="manual")
         a.acquire()
         a.release()
         self.assertTrue(b.acquire())
 
     def test_expired_lease_taken_over(self):
-        a = InMemoryLeaseLock("330", holder="crashed", ttl_seconds=0)
+        a = InMemoryLeaseLock("1234567", holder="crashed", ttl_seconds=0)
         a.acquire()
         time.sleep(0.01)  # lease with ttl=0 expires immediately
-        b = InMemoryLeaseLock("330", holder="timer")
+        b = InMemoryLeaseLock("1234567", holder="timer")
         self.assertTrue(b.acquire())  # expiry is the crash backstop
 
     def test_release_by_non_holder_keeps_lease(self):
-        a = InMemoryLeaseLock("330", holder="timer")
+        a = InMemoryLeaseLock("1234567", holder="timer")
         a.acquire()
-        b = InMemoryLeaseLock("330", holder="manual")
+        b = InMemoryLeaseLock("1234567", holder="manual")
         b.release()  # never acquired -> must not free a's lease
-        c = InMemoryLeaseLock("330", holder="other")
+        c = InMemoryLeaseLock("1234567", holder="other")
         self.assertFalse(c.acquire())
 
 
@@ -76,7 +76,7 @@ class RetryTests(unittest.TestCase):
 
     def _client(self):
         return RealFormerListClient(
-            base_url="https://x.invalid", api_key="k", company_id="330",
+            base_url="https://x.invalid", api_key="k", company_id="1234567",
             actor_email="a@x.com", list_path="/l", add_path="/a", remove_path="/r")
 
     def test_transient_500_retried_once_then_returned(self):

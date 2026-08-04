@@ -1,22 +1,44 @@
 """
-Structured logging utilities with source prefix and password filtering.
+Structured logging utilities with source prefix and secret filtering.
 All log output goes through standard Python logging (captured by App Insights).
-Passwords NEVER appear in any log output.
+Passwords and API keys NEVER appear in any log output.
 """
 
 import logging
 import re
 
-_PASSWORD_PATTERN = re.compile(
-    r'(password|passwd|pwd|credential|secret|token)\s*[=:]\s*\S+',
+# The API key is the one credential this app holds for the platform, so it
+# belongs in this list beside the passwords. Two spellings had to be covered:
+# `apiKey=...` and the JSON form `{"apiKey": "..."}`. The optional quote before
+# the separator is what catches the second one -- a pattern anchored straight
+# to [=:] walks past the quote and leaves the value in the clear.
+_SECRET_PATTERN = re.compile(
+    r'(password|passwd|pwd|credential|secret|token|api[-_]?key)'
+    r'["\']?\s*[=:]\s*["\']?[^\s"\',;}]+',
     re.IGNORECASE
 )
-_REDACT = r'\1=***REDACTED***'
+
+# Naming the field rather than shouting REDACTED keeps the line readable and
+# does not advertise to whoever reads the log that a live secret was here.
+_PLACEHOLDERS = {
+    'password': 'your_password',
+    'passwd': 'your_password',
+    'pwd': 'your_password',
+    'credential': 'your_credential',
+    'secret': 'your_secret',
+    'token': 'your_token',
+}
+
+
+def _placeholder(match: 're.Match') -> str:
+    """Swap a matched secret for a neutral, field-named placeholder."""
+    name = match.group(1)
+    return f"{name}={_PLACEHOLDERS.get(name.lower(), 'your_key')}"
 
 
 def _redact(msg: str) -> str:
-    """Strip any accidental password-like values from a log string."""
-    return _PASSWORD_PATTERN.sub(_REDACT, str(msg))
+    """Strip any accidental secret-like values from a log string."""
+    return _SECRET_PATTERN.sub(_placeholder, str(msg))
 
 
 class SourceLogger:

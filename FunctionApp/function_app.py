@@ -1560,7 +1560,7 @@ def former_manual(req: func.HttpRequest) -> func.HttpResponse:
 
     POST /api/former/manual?code=<function-key>
     body: {"action": "add" | "remove", "emails": [...],
-           "company_id": "330"}   # optional with a single company; required
+           "company_id": "1234567"}   # optional with a single company; required
                                   # when FORMER_COMPANY_MAP has multiple rows
 
     Entries land in the FormerManual table AND go to the SOCRadar list

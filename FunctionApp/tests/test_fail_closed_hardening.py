@@ -199,11 +199,23 @@ class TheRedactorCleansWhatItActuallyLogs(unittest.TestCase):
     def test_a_secret_in_an_argument_is_redacted(self):
         out = self._capture("remote response: %s", "password=TopSecret123&x=1")
         self.assertNotIn("TopSecret123", out)
-        self.assertIn("REDACTED", out)
+        self.assertIn("your_password", out)
 
     def test_a_secret_in_the_format_string_is_still_redacted(self):
         out = self._capture("token: abc123 password=Hunter2")
         self.assertNotIn("Hunter2", out)
+
+    def test_an_api_key_is_redacted_in_both_spellings(self):
+        """The platform API key is the credential this app carries. It reached
+        the log in the clear until it was added to the pattern -- and the JSON
+        spelling needed the quote before the colon to be matched at all."""
+        for line in ('apiKey=1f2e3d4c5b6a7988',
+                     'api_key: 1f2e3d4c5b6a7988',
+                     '{"apiKey": "1f2e3d4c5b6a7988"}',
+                     'X-API-KEY: 1f2e3d4c5b6a7988'):
+            out = self._capture("remote response: %s", line)
+            self.assertNotIn("1f2e3d4c5b6a7988", out, f"key leaked from: {line}")
+            self.assertIn("your_key", out, f"no placeholder for: {line}")
 
     def test_a_bad_format_does_not_lose_the_line(self):
         out = self._capture("only one %s here", "a", "b")  # too many args
@@ -435,22 +447,22 @@ class ALegacyKeyedRowStaysRemovable(unittest.TestCase):
         from actions.socradar_former import (_delete_email_row,
                                              _legacy_email_row_key)
         table = self._Table()
-        table.rows[("330", _legacy_email_row_key("leaver@corp.com"))] = {
+        table.rows[("1234567", _legacy_email_row_key("leaver@corp.com"))] = {
             "email": "leaver@corp.com"}
-        self.assertTrue(_delete_email_row(table, "330", "leaver@corp.com"))
+        self.assertTrue(_delete_email_row(table, "1234567", "leaver@corp.com"))
         self.assertEqual(table.rows, {})
 
     def test_a_row_under_the_new_scheme_is_deleted(self):
         from actions.socradar_former import _delete_email_row, _email_row_key
         table = self._Table()
-        table.rows[("330", _email_row_key("leaver@corp.com"))] = {
+        table.rows[("1234567", _email_row_key("leaver@corp.com"))] = {
             "email": "leaver@corp.com"}
-        self.assertTrue(_delete_email_row(table, "330", "leaver@corp.com"))
+        self.assertTrue(_delete_email_row(table, "1234567", "leaver@corp.com"))
         self.assertEqual(table.rows, {})
 
     def test_absence_is_reported_as_absence(self):
         from actions.socradar_former import _delete_email_row
-        self.assertFalse(_delete_email_row(self._Table(), "330", "gone@x.com"))
+        self.assertFalse(_delete_email_row(self._Table(), "1234567", "gone@x.com"))
 
 
 if __name__ == "__main__":

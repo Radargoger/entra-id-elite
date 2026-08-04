@@ -124,10 +124,10 @@ class RulesetModeAliasTest(unittest.TestCase):
             from utils import config
             conf = config.load_former()
 
-        row = {"company_id": "330", "own_tenants": ["te330"],
+        row = {"company_id": "1234567", "own_tenants": ["te1234567"],
                "api_key": "k", "actor_email": "a@x.com"}
         tenant_data = {
-            "te330": _tenant(active={"active@x.com"}, disabled={"disabled@x.com"}),
+            "te1234567": _tenant(active={"active@x.com"}, disabled={"disabled@x.com"}),
         }
         kw = dict(include_deleted=True, enable_former_sync=True, enable_cross=False)
 
@@ -143,10 +143,10 @@ class RulesetModeAliasTest(unittest.TestCase):
 
     def test_compose_company_strict_differs_from_standard(self):
         """strict routes disabled users to review, not desired -- unlike standard."""
-        row = {"company_id": "330", "own_tenants": ["te330"],
+        row = {"company_id": "1234567", "own_tenants": ["te1234567"],
                "api_key": "k", "actor_email": "a@x.com"}
         tenant_data = {
-            "te330": _tenant(active=set(), disabled={"disabled@x.com"}),
+            "te1234567": _tenant(active=set(), disabled={"disabled@x.com"}),
         }
         kw = dict(include_deleted=True, enable_former_sync=True, enable_cross=False)
 

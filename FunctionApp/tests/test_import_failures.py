@@ -44,7 +44,7 @@ def _assert_window_not_written_off(test, save):
 def _conf(**over):
     conf = {
         "storage_account_name": "sa",
-        "socradar_api_key": "k", "socradar_company_id": "330",
+        "socradar_api_key": "k", "socradar_company_id": "1234567",
         "socradar_base_url": "https://example.invalid",
         "enable_user_lookup": True, "verified_domains": [],
         "enable_create_incident": False, "enable_resolve_alarm": False,
@@ -72,7 +72,7 @@ def _run(lookup_result, law_ok=True, records=2):
          mock.patch.object(function_app.entra, "lookup_user", return_value=lookup_result):
         result = function_app._process_source(
             "botnet", _conf(), None, {"t-a": {"h": "x"}},
-            deadline=float("inf"), checkpoint_key="botnet:330")
+            deadline=float("inf"), checkpoint_key="botnet:1234567")
     return result, save
 
 
@@ -178,7 +178,7 @@ class StuckWindowTest(unittest.TestCase):
              mock.patch.object(function_app.entra, "lookup_user", return_value=(None, 503)):
             function_app._process_source(
                 "botnet", _conf(), None, {"t-a": {"h": "x"}},
-                deadline=float("inf"), checkpoint_key="botnet:330")
+                deadline=float("inf"), checkpoint_key="botnet:1234567")
         return save, life
 
     def test_repeated_failures_count_up(self):
@@ -304,7 +304,7 @@ class RopcRawCleanupTest(unittest.TestCase):
                 None,
                 {"t-a": {"h": "x"}},
                 deadline=float("inf"),
-                checkpoint_key="botnet:330",
+                checkpoint_key="botnet:1234567",
             )
         return result, written, ropc_mock
 

@@ -174,7 +174,7 @@ class EmptyAuditFieldsTest(unittest.TestCase):
         self.assertTrue(result["truncated"])
 
     def test_capped_and_domain_filtered_present(self):
-        result = function_app._empty_audit("botnet", "330", errors=1)
+        result = function_app._empty_audit("botnet", "1234567", errors=1)
         self.assertIn("capped", result)
         self.assertIn("domain_filtered", result)
         self.assertFalse(result["capped"])

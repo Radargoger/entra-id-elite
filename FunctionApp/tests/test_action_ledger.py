@@ -71,7 +71,7 @@ class RowKeyPrivacyTest(unittest.TestCase):
 def _conf(**over):
     conf = {
         "storage_account_name": "sa",
-        "socradar_api_key": "k", "socradar_company_id": "330",
+        "socradar_api_key": "k", "socradar_company_id": "1234567",
         "socradar_base_url": "https://example.invalid",
         "enable_user_lookup": True, "verified_domains": [],
         "enable_create_incident": False, "enable_resolve_alarm": False,
@@ -123,7 +123,7 @@ def _run_process_source(conf, already_applied_emails=None):
          mock.patch.object(function_app.ledger_mod, "InMemoryActionLedger", return_value=ledger):
         result = function_app._process_source(
             "botnet", conf, None, {"t-a": {"h": "x"}},
-            deadline=float("inf"), checkpoint_key="botnet:330")
+            deadline=float("inf"), checkpoint_key="botnet:1234567")
     return result, revoke, pw_change
 
 
@@ -168,7 +168,7 @@ class PlanModeNoRecordTest(unittest.TestCase):
             result = function_app._process_source(
                 "botnet", _conf(entra_action_mode="plan"), None,
                 {"t-a": {"h": "x"}},
-                deadline=float("inf"), checkpoint_key="botnet:330")
+                deadline=float("inf"), checkpoint_key="botnet:1234567")
         # Plan mode: no actions should be recorded
         self.assertEqual(len(ledger._seen), 0,
                          "plan-mode must not record to the ledger")

@@ -43,7 +43,7 @@ class TheCredentialReachesExactlyOneColumn(unittest.TestCase):
 
     def test_a_record_written_to_log_analytics_carries_it_once(self):
         conf = {"dcr_immutable_id": "d", "dcr_endpoint": "https://x.invalid",
-                "socradar_company_id": "330"}
+                "socradar_company_id": "1234567"}
         record = {"email": "a@x.com", "password": SECRET, "password_masked": "Z***1"}
 
         with mock.patch.object(law_writer, "_upload", return_value=True) as up:
@@ -89,7 +89,7 @@ class TheCredentialNeverReachesTheLogs(unittest.TestCase):
 
     def test_writing_a_record_logs_nothing_about_it(self):
         conf = {"dcr_immutable_id": "d", "dcr_endpoint": "https://x.invalid",
-                "socradar_company_id": "330"}
+                "socradar_company_id": "1234567"}
         record = {"email": "a@x.com", "password": SECRET}
 
         def write():
@@ -101,7 +101,7 @@ class TheCredentialNeverReachesTheLogs(unittest.TestCase):
     def test_a_failed_write_logs_nothing_about_it(self):
         """The error path is the one that tends to print the whole payload."""
         conf = {"dcr_immutable_id": "d", "dcr_endpoint": "https://x.invalid",
-                "socradar_company_id": "330"}
+                "socradar_company_id": "1234567"}
         record = {"email": "a@x.com", "password": SECRET}
 
         def write():

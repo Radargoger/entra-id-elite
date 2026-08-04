@@ -33,7 +33,7 @@ TEMPLATE = Path(__file__).resolve().parents[2] / "deploy" / "azuredeploy.json"
 
 def _conf():
     return {
-        "socradar_company_id": "330", "socradar_api_key": "k",
+        "socradar_company_id": "1234567", "socradar_api_key": "k",
         "socradar_base_url": "https://example.invalid",
         "dcr_immutable_id": "dcr-1",
         "dcr_endpoint": "https://example.ingest.monitor.azure.com",
@@ -53,7 +53,7 @@ def _conf():
 
 def _employee(email, **over):
     rec = {
-        "email": email, "company_id": "330", "source": "vip",
+        "email": email, "company_id": "1234567", "source": "vip",
         "is_employee": True, "alarm_id": 1, "vip_name": "A Person",
         "password_present": False, "password_masked": None,
         "is_plaintext": False,
@@ -76,7 +76,7 @@ def _run(employees, conf=None):
          mock.patch.object(law_writer, "_upload", return_value=True):
         return function_app._process_source(
             "vip", conf, None, {"t-a": {"Authorization": "x"}},
-            deadline=float("inf"), checkpoint_key="vip:330")
+            deadline=float("inf"), checkpoint_key="vip:1234567")
 
 
 def _walk(node):

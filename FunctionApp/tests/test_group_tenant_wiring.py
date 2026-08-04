@@ -38,7 +38,7 @@ BASE_ENV = {
     "ENTRA_CLIENT_ID": "11111111-2222-3333-4444-555555555555",
     "STORAGE_ACCOUNT_NAME": "elitestorage",
     "FORMER_COMPANY_MAP": (
-        '[{"companyId":"330","tenantIds":"' + COMPANY_TENANT + '",'
+        '[{"companyId":"1234567","tenantIds":"' + COMPANY_TENANT + '",'
         '"apiKey":"k","actorEmail":"a@x.com"}]'
     ),
 }
@@ -78,15 +78,15 @@ class ExclusionHappensPerCompanyNotAtLoad(unittest.TestCase):
 
     def test_a_company_never_gets_its_own_tenant_as_a_group_tenant(self):
         rows = [
-            {"company_id": "330", "own_tenants": [COMPANY_TENANT],
+            {"company_id": "1234567", "own_tenants": [COMPANY_TENANT],
              "api_key": "k", "actor_email": "a@x.com"},
             {"company_id": "440", "own_tenants": [SIBLING_TENANT],
              "api_key": "k", "actor_email": "b@x.com"},
         ]
         groups = former_companies.derive_group_tenants(rows, [HOLDING_TENANT])
-        self.assertNotIn(COMPANY_TENANT, groups["330"])
-        self.assertIn(SIBLING_TENANT, groups["330"])
-        self.assertIn(HOLDING_TENANT, groups["330"],
+        self.assertNotIn(COMPANY_TENANT, groups["1234567"])
+        self.assertIn(SIBLING_TENANT, groups["1234567"])
+        self.assertIn(HOLDING_TENANT, groups["1234567"],
                       "the holding tenant has to reach every company")
         self.assertNotIn(SIBLING_TENANT, groups["440"])
         self.assertIn(HOLDING_TENANT, groups["440"])
@@ -96,13 +96,13 @@ class ExclusionHappensPerCompanyNotAtLoad(unittest.TestCase):
         listed: it must not appear in that row's group set, and must still
         appear in the other row's."""
         rows = [
-            {"company_id": "330", "own_tenants": [HOLDING_TENANT],
+            {"company_id": "1234567", "own_tenants": [HOLDING_TENANT],
              "api_key": "k", "actor_email": "a@x.com"},
             {"company_id": "440", "own_tenants": [SIBLING_TENANT],
              "api_key": "k", "actor_email": "b@x.com"},
         ]
         groups = former_companies.derive_group_tenants(rows, [HOLDING_TENANT])
-        self.assertNotIn(HOLDING_TENANT, groups["330"])
+        self.assertNotIn(HOLDING_TENANT, groups["1234567"])
         self.assertIn(HOLDING_TENANT, groups["440"])
 
 

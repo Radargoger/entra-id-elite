@@ -26,27 +26,27 @@ def _conf():
     return {
         "dcr_immutable_id": "dcr-1",
         "dcr_endpoint": "https://example.ingest.monitor.azure.com",
-        "socradar_company_id": "330",
+        "socradar_company_id": "1234567",
     }
 
 
 class StreamRoutingTest(unittest.TestCase):
     def test_import_summary_uses_its_own_stream(self):
         with mock.patch.object(law_writer, "_upload", return_value=True) as up:
-            law_writer.write_audit(_conf(), [{"source": "botnet", "company_id": "330",
+            law_writer.write_audit(_conf(), [{"source": "botnet", "company_id": "1234567",
                                               "total": 5, "duration": 1.0}])
         self.assertEqual(up.call_args[0][1], law_writer.IMPORT_AUDIT_STREAM)
 
     def test_former_summary_still_uses_the_former_stream(self):
         with mock.patch.object(law_writer, "_upload", return_value=True) as up:
-            law_writer.write_former_audit(_conf(), [{"company_id": "330"}])
+            law_writer.write_former_audit(_conf(), [{"company_id": "1234567"}])
         self.assertEqual(up.call_args[0][1], law_writer.AUDIT_STREAM)
 
     def test_records_carry_company_id(self):
         with mock.patch.object(law_writer, "_upload", return_value=True) as up:
             law_writer.write_records(_conf(), "botnet", [{"email": "a@x.com"}])
         sent = up.call_args[0][2]
-        self.assertEqual(sent[0]["company_id"], "330")
+        self.assertEqual(sent[0]["company_id"], "1234567")
 
 
 class SchemaAgreementTest(unittest.TestCase):
@@ -95,7 +95,7 @@ class SchemaAgreementTest(unittest.TestCase):
 
         with mock.patch.object(law_writer, "_upload", return_value=True) as up:
             law_writer.write_audit(_conf(), [{
-                "source": "botnet", "company_id": "330", "total": 1, "employees": 1,
+                "source": "botnet", "company_id": "1234567", "total": 1, "employees": 1,
                 "found": 1, "not_found": 0, "actions": 2, "errors": 0,
                 "domain_filtered": 0, "capped": True, "duration": 1.5,
             }])
@@ -114,7 +114,7 @@ class SchemaAgreementTest(unittest.TestCase):
         import function_app
 
         employees = [{
-            "email": "a@x.com", "company_id": "330", "source": source,
+            "email": "a@x.com", "company_id": "1234567", "source": source,
             "is_employee": True, "alarm_id": 1,
             "password_present": True, "password_masked": "a***3",
             "is_plaintext": False,
@@ -125,7 +125,7 @@ class SchemaAgreementTest(unittest.TestCase):
             # would pass by never reaching the uploader at all.
             "dcr_immutable_id": "dcr-1",
             "dcr_endpoint": "https://example.ingest.monitor.azure.com",
-            "socradar_company_id": "330", "socradar_api_key": "k",
+            "socradar_company_id": "1234567", "socradar_api_key": "k",
             "socradar_base_url": "https://example.invalid",
             "storage_account_name": "sa", "tenant_ids": ["t-a"], "tenant_id": "",
             "client_id": "app-1", "enable_user_lookup": True, "verified_domains": [],
@@ -157,7 +157,7 @@ class SchemaAgreementTest(unittest.TestCase):
              mock.patch.object(law_writer, "_upload", return_value=True) as up:
             function_app._process_source(
                 source, conf, None, {"t-a": {"Authorization": "x"}},
-                deadline=float("inf"), checkpoint_key=f"{source}:330")
+                deadline=float("inf"), checkpoint_key=f"{source}:1234567")
 
         calls = [c for c in up.call_args_list if c[0][1] == law_writer.STREAM_MAP[source]]
         self.assertTrue(calls, f"no {source} record reached the uploader")

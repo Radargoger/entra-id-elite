@@ -54,7 +54,7 @@ class TheObjectIdReachesTheAuditTable(unittest.TestCase):
         with mock.patch.object(law_writer, "_upload", return_value=True) as up:
             law_writer.write_records(
                 {"dcr_immutable_id": "d", "dcr_endpoint": "https://x.invalid",
-                 "socradar_company_id": "330"}, "botnet", [record])
+                 "socradar_company_id": "1234567"}, "botnet", [record])
         sent = up.call_args[0][2][0]
         self.assertEqual(sent.get("entra_user_id"), "obj-1234",
                          "the object ID was stripped again, so nothing can be "
@@ -119,7 +119,7 @@ class AddressesOutsideOurDomainsNeverLeave(unittest.TestCase):
                                side_effect=fake_lookup):
             result = function_app._process_source(
                 "botnet", conf, None, {"t-a": {"h": "x"}},
-                deadline=float("inf"), checkpoint_key="botnet:330")
+                deadline=float("inf"), checkpoint_key="botnet:1234567")
 
         self.assertEqual(looked_up, ["ours@corp.com"],
                          "an address outside the customer's domains was sent "
@@ -140,7 +140,7 @@ class AddressesOutsideOurDomainsNeverLeave(unittest.TestCase):
                                                          ({"id": "u"}, 200))[1]):
             function_app._process_source(
                 "botnet", conf, None, {"t-a": {"h": "x"}},
-                deadline=float("inf"), checkpoint_key="botnet:330")
+                deadline=float("inf"), checkpoint_key="botnet:1234567")
         self.assertEqual(looked_up, ["stranger@other.com"])
 
 
@@ -191,7 +191,7 @@ class OneWorkspaceToQuery(unittest.TestCase):
 def _leak_conf(**over):
     conf = {
         "storage_account_name": "sa",
-        "socradar_api_key": "k", "socradar_company_id": "330",
+        "socradar_api_key": "k", "socradar_company_id": "1234567",
         "socradar_base_url": "https://example.invalid",
         "enable_user_lookup": True, "verified_domains": [],
         "enable_create_incident": False, "enable_resolve_alarm": False,

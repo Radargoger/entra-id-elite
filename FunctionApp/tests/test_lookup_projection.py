@@ -44,7 +44,7 @@ GRAPH_DEFAULT_USER = {
 
 def _conf_for_botnet():
     return {
-        "socradar_company_id": "330", "socradar_api_key": "k",
+        "socradar_company_id": "1234567", "socradar_api_key": "k",
         "socradar_base_url": "https://example.invalid",
         "dcr_immutable_id": "dcr-1",
         "dcr_endpoint": "https://example.ingest.monitor.azure.com",
@@ -114,7 +114,7 @@ class AuditRowClaimsOnlyWhatWasRead(unittest.TestCase):
 
     def _row_for(self, lookup_result):
         conf = {
-            "socradar_company_id": "330", "socradar_api_key": "k",
+            "socradar_company_id": "1234567", "socradar_api_key": "k",
             "socradar_base_url": "https://example.invalid",
             # These exact key names matter: without them the writer logs an
             # error and returns False, and every assertion below would pass by
@@ -134,7 +134,7 @@ class AuditRowClaimsOnlyWhatWasRead(unittest.TestCase):
             "max_pages_per_run": 50,
         }
         employees = [{
-            "email": "a@x.com", "company_id": "330", "source": "botnet",
+            "email": "a@x.com", "company_id": "1234567", "source": "botnet",
             "is_employee": True, "alarm_id": 1,
             "password_present": True, "password_masked": "a***3",
             "is_plaintext": False,
@@ -148,7 +148,7 @@ class AuditRowClaimsOnlyWhatWasRead(unittest.TestCase):
              mock.patch.object(law_writer, "_upload", return_value=True) as up:
             function_app._process_source(
                 "botnet", conf, None, {"t-a": {"Authorization": "x"}},
-                deadline=float("inf"), checkpoint_key="botnet:330")
+                deadline=float("inf"), checkpoint_key="botnet:1234567")
         stream = law_writer.STREAM_MAP["botnet"]
         calls = [c for c in up.call_args_list if c[0][1] == stream]
         self.assertTrue(calls, "no botnet record reached the uploader")
@@ -226,7 +226,7 @@ class TheTwoHalvesTogether(unittest.TestCase):
 
         conf = _conf_for_botnet()
         employees = [{
-            "email": "a@x.com", "company_id": "330", "source": "botnet",
+            "email": "a@x.com", "company_id": "1234567", "source": "botnet",
             "is_employee": True, "alarm_id": 1,
             "password_present": True, "password_masked": "a***3",
             "is_plaintext": False,
@@ -239,7 +239,7 @@ class TheTwoHalvesTogether(unittest.TestCase):
              mock.patch.object(law_writer, "_upload", return_value=True) as up:
             function_app._process_source(
                 "botnet", conf, None, {"t-a": {"Authorization": "x"}},
-                deadline=float("inf"), checkpoint_key="botnet:330")
+                deadline=float("inf"), checkpoint_key="botnet:1234567")
         stream = law_writer.STREAM_MAP["botnet"]
         calls = [c for c in up.call_args_list if c[0][1] == stream]
         assert calls, "no botnet record reached the uploader"

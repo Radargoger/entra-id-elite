@@ -15,7 +15,7 @@ import function_app  # noqa: E402
 
 
 MAP = (
-    '[{"companyId":"330","tenantIds":"t-330","apiKey":"k330","actorEmail":"a@x.com"},'
+    '[{"companyId":"1234567","tenantIds":"t-1234567","apiKey":"k1234567","actorEmail":"a@x.com"},'
     ' {"companyId":"440","tenantIds":"t-440","apiKey":"k440","actorEmail":"b@x.com"}]'
 )
 
@@ -42,15 +42,15 @@ class TenantScopingTest(unittest.TestCase):
 
     def test_row_tenants_win_over_global(self):
         rows = function_app._import_company_rows(_conf(company_map_raw=MAP))
-        self.assertEqual([r["company_id"] for r in rows], ["330", "440"])
+        self.assertEqual([r["company_id"] for r in rows], ["1234567", "440"])
 
         first = function_app._import_company_conf(_conf(company_map_raw=MAP), rows[0])
         second = function_app._import_company_conf(_conf(company_map_raw=MAP), rows[1])
 
-        self.assertEqual(first["tenant_ids"], ["t-330"])
+        self.assertEqual(first["tenant_ids"], ["t-1234567"])
         self.assertEqual(second["tenant_ids"], ["t-440"])
         self.assertNotIn("t-global", first["tenant_ids"] + second["tenant_ids"])
-        self.assertEqual(first["socradar_api_key"], "k330")
+        self.assertEqual(first["socradar_api_key"], "k1234567")
         self.assertEqual(second["socradar_api_key"], "k440")
 
     def test_tokens_requested_only_for_own_tenants(self):
@@ -60,10 +60,10 @@ class TenantScopingTest(unittest.TestCase):
         asked = []
         with mock.patch.object(function_app.entra, "get_graph_token",
                                side_effect=lambda tenant_id, client_id: asked.append(tenant_id) or "tok"):
-            headers = function_app._acquire_tenant_tokens(ccfg, "330")
+            headers = function_app._acquire_tenant_tokens(ccfg, "1234567")
 
-        self.assertEqual(asked, ["t-330"])
-        self.assertEqual(list(headers), ["t-330"])
+        self.assertEqual(asked, ["t-1234567"])
+        self.assertEqual(list(headers), ["t-1234567"])
 
     def test_legacy_deployment_keeps_global_tenants(self):
         rows = function_app._import_company_rows(_conf())
@@ -78,10 +78,10 @@ class TenantScopingTest(unittest.TestCase):
 
 class CheckpointPartitionTest(unittest.TestCase):
     def test_companies_do_not_share_a_partition(self):
-        row = {"company_id": "330"}
-        self.assertEqual(function_app._checkpoint_key("botnet", "330", row), "botnet:330")
+        row = {"company_id": "1234567"}
+        self.assertEqual(function_app._checkpoint_key("botnet", "1234567", row), "botnet:1234567")
         self.assertNotEqual(
-            function_app._checkpoint_key("botnet", "330", row),
+            function_app._checkpoint_key("botnet", "1234567", row),
             function_app._checkpoint_key("botnet", "440", {"company_id": "440"}),
         )
 
@@ -111,7 +111,7 @@ class ActionGateTest(unittest.TestCase):
             "enable_create_incident": False, "enable_resolve_alarm": False,
             "enable_ropc": False, "security_group_id": "",
         })
-        headers = {"t-330": {"Authorization": "x"}}
+        headers = {"t-1234567": {"Authorization": "x"}}
 
         from actions.action_ledger import InMemoryActionLedger
         with mock.patch.object(function_app.src_botnet, "fetch", return_value=employees), \
@@ -125,7 +125,7 @@ class ActionGateTest(unittest.TestCase):
                                return_value=InMemoryActionLedger()):
             result = function_app._process_source(
                 "botnet", conf, None, headers,
-                deadline=float("inf"), checkpoint_key="botnet:330")
+                deadline=float("inf"), checkpoint_key="botnet:1234567")
         written = write.call_args[0][2] if write.call_args else []
         return result, revoke, disable, written
 
@@ -161,7 +161,7 @@ class FetchFailureTest(unittest.TestCase):
              mock.patch.object(function_app.cp, "save"), \
              mock.patch.object(function_app.law, "write_records"):
             result = function_app._process_source(
-                "botnet", conf, None, {}, deadline=float("inf"), checkpoint_key="botnet:330")
+                "botnet", conf, None, {}, deadline=float("inf"), checkpoint_key="botnet:1234567")
 
         self.assertEqual(result["errors"], 1)
         self.assertEqual(result["total"], 0)
