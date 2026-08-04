@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Nothing here publishes anything. Without this the workflow token carries
+# whatever the repository default grants, which on a public repo means a fork's
+# pull request runs with more reach than reading the code needs.
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          # Matches the runtime the function app is deployed on, so a syntax
+          # or stdlib difference cannot pass here and fail in Azure.
+          python-version: '3.11'
+      - name: Install runtime dependencies
+        working-directory: FunctionApp
+        # The suite stubs the azure-* packages when they are absent, but it
+        # imports requests for real. Installing the actual requirements also
+        # means a breaking change in an SDK shows up here rather than in Azure.
+        run: pip install -r requirements.txt
+
+      - name: Run the suite
+        working-directory: FunctionApp
+        run: python -m unittest discover -s tests -v
+
+      - name: Coverage may not go backwards
+        working-directory: FunctionApp
+        # A floor, not a target. Percentage coverage is a poor quality signal
+        # here -- 219 green tests once sat alongside nine real defects and not
+        # one of them was caught by a test. What a floor does catch is code
+        # arriving with no test at all, so the number is today's measurement
+        # rather than a round aspiration. Raise it when it is genuinely
+        # exceeded; never lower it to make a branch pass.
+        #
+        # tests/* is omitted deliberately. Counting the test files puts the
+        # figure at 79% because they are nearly fully executed by definition,
+        # and then writing more tests raises the number without covering a
+        # single line of the app. 59% is the application alone.
+        run: |
+          pip install -q coverage
+          python -m coverage run -m unittest discover -s tests
+          python -m coverage report --omit='tests/*' --fail-under=63
+
+  template:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install bicep
+        # az downloads it on first use; doing it as its own step means a
+        # download failure says so instead of surfacing as "template is stale".
+        run: az bicep install
+
+      - name: azuredeploy.json must match main.bicep
+        working-directory: deploy
+        # The deploy button serves azuredeploy.json straight from master while
+        # main.bicep is what anyone edits. When the two drift, customers get a
+        # template nobody reviewed -- that has already happened once.
+        run: |
+          az bicep build -f main.bicep --outfile /tmp/expected.json
+          if ! diff -q <(python3 -m json.tool /tmp/expected.json) \
+                       <(python3 -m json.tool azuredeploy.json) > /dev/null; then
+            echo "::error::azuredeploy.json is stale. Run: az bicep build -f main.bicep --outfile azuredeploy.json"
+            diff <(python3 -m json.tool /tmp/expected.json) \
+                 <(python3 -m json.tool azuredeploy.json) | head -40
+            exit 1
+          fi
+          echo "template is in sync"
+
+      - name: The package the template points at must exist
+        working-directory: deploy
+        # The template names one URL and the whole install depends on it. A tag
+        # renamed or a release deleted leaves a template that deploys an app
+        # with no code in it, and nothing else in this pipeline would notice.
+        run: |
+          URL=$(python3 -c "import json;print(json.load(open('azuredeploy.json'))['parameters']['PackageUri']['defaultValue'])")
+          echo "PackageUri: $URL"
+          CODE=$(curl -sIL -o /dev/null -w '%{http_code}' "$URL")
+          if [ "$CODE" != "200" ]; then
+            echo "::error::PackageUri returns HTTP $CODE. The template ships a package nobody can download."
+            exit 1
+          fi
+          echo "package reachable"
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Package builds and every entry is readable
+        # A zip entry the Linux worker cannot read makes the host index zero
+        # functions while still reporting healthy. The builder refuses to write
+        # such a package; this proves the builder itself still works.
+        run: python3 scripts/build_package.py --out /tmp/FunctionApp.zip

@@ -8,7 +8,9 @@ Migration notes:
 - Auth: Monitoring Metrics Publisher role on the DCR scope (assigned to UAMI)
 - Schema: explicit per-table column declarations in DCR streamDeclarations
 
-Password policy: if EnableLogPlaintextPassword=false (default), plaintext is stripped.
+Credential policy: the value is stored as the feed delivered it, masked or
+clear, and the table declares a column for it. Masking is chosen per company
+inside SOCRadar; there is no application-side switch. See docs/product-policy.md §2.
 """
 
 import logging
@@ -27,28 +29,35 @@ STREAM_MAP = {
     "vip":    "Custom-SOCRadar_VIP_CL",
 }
 AUDIT_STREAM = "Custom-SOCRadar_EntraID_Audit_CL"
+IMPORT_AUDIT_STREAM = "Custom-SOCRadar_ImportAudit_CL"
 
 BATCH_SIZE = 1000  # Logs Ingestion API allows up to 1MB per call; 1000 records is safe default
 MAX_FIELD_LEN = 30000
 
-# Singleton client (re-used across function invocations)
-_client: LogsIngestionClient | None = None
-_client_endpoint: str = ""
+# Singleton client, re-used across invocations, held as one (endpoint, client)
+# pair. Two separate globals cannot be published together, and the same shape
+# in actions/entra_id.py let one company's run pick up another company's Graph
+# credential. Nothing that bad is reachable here (there is a single
+# DCR_ENDPOINT, and the credential is not tenant-scoped), but the shape is the
+# defect, and leaving one copy of it invites the next one.
+_client: tuple | None = None
 
 
 def _get_client(endpoint: str) -> LogsIngestionClient | None:
     """Return cached LogsIngestionClient or build one with DefaultAzureCredential."""
-    global _client, _client_endpoint
-    if _client is None or _client_endpoint != endpoint:
-        try:
-            credential = DefaultAzureCredential()
-            _client = LogsIngestionClient(endpoint=endpoint, credential=credential)
-            _client_endpoint = endpoint
-            logger.info("[LAW] LogsIngestionClient initialized for %s", endpoint)
-        except Exception as e:
-            logger.error("[LAW] Failed to initialize LogsIngestionClient: %s", e)
-            return None
-    return _client
+    global _client
+    cached = _client
+    if cached is not None and cached[0] == endpoint:
+        return cached[1]
+    try:
+        credential = DefaultAzureCredential()
+        client = LogsIngestionClient(endpoint=endpoint, credential=credential)
+        _client = (endpoint, client)
+        logger.info("[LAW] LogsIngestionClient initialized for %s", endpoint)
+        return client
+    except Exception as e:
+        logger.error("[LAW] Failed to initialize LogsIngestionClient: %s", e)
+        return None
 
 
 def _upload(rule_id: str, stream_name: str, records: list, endpoint: str) -> bool:
@@ -68,14 +77,21 @@ def _upload(rule_id: str, stream_name: str, records: list, endpoint: str) -> boo
         return False
 
 
-def _clean_record(rec: dict, enable_log_plaintext: bool) -> dict:
-    """Remove internal-only fields, enforce password policy, truncate long strings, add TimeGenerated."""
+def _clean_record(rec: dict) -> dict:
+    """Remove internal-only fields, truncate long strings, add TimeGenerated.
+
+    The credential itself is written as the feed delivered it: masked or clear
+    is decided per company in the SOCRadar platform, upstream of this app.
+    """
     out = {}
-    skip_keys = {"_checkpoint_update", "sanitized", "entra_user_id", "_empty_marker"}
+    # entra_user_id used to be dropped here, alongside genuinely internal
+    # plumbing. Nothing chose that: the object ID is the only field that lets a
+    # customer line a row up against Microsoft Entra ID's own audit log and
+    # confirm from an independent source that a change the app reports actually
+    # happened. It is declared in the collection rule, so it lands.
+    skip_keys = {"_checkpoint_update", "sanitized", "_empty_marker"}
     for k, v in rec.items():
         if k in skip_keys:
-            continue
-        if k == "password" and not enable_log_plaintext:
             continue
         if isinstance(v, str) and len(v) > MAX_FIELD_LEN:
             v = v[:MAX_FIELD_LEN] + "...[truncated]"
@@ -85,25 +101,36 @@ def _clean_record(rec: dict, enable_log_plaintext: bool) -> dict:
     return out
 
 
-def write_records(conf: dict, source_name: str, records: list):
-    """Write source records to appropriate LAW table in batches via DCR Logs Ingestion API."""
+def write_records(conf: dict, source_name: str, records: list) -> bool:
+    """Write source records to the matching LAW table in batches.
+
+    Returns whether every batch landed. The caller holds the checkpoint back on
+    a failure, otherwise the records are lost: the window is never read again.
+    """
     stream_name = STREAM_MAP.get(source_name)
     if not stream_name:
         logger.warning("[LAW] Unknown source: %s — skipping", source_name)
-        return
+        return False
 
     rule_id = conf.get("dcr_immutable_id")
     endpoint = conf.get("dcr_endpoint")
     if not rule_id or not endpoint:
         logger.error("[LAW] DCR_IMMUTABLE_ID or DCR_ENDPOINT missing — cannot write %s records", source_name)
-        return
+        return False
 
-    enable_log_plaintext = conf.get("enable_log_plaintext_password", False)
-    cleaned = [_clean_record(r, enable_log_plaintext) for r in records]
+    cleaned = [_clean_record(r) for r in records]
 
+    # One deployment serves several companies, so a finding that cannot be
+    # attributed to one of them is not actionable.
+    company_id = str(conf.get("socradar_company_id", ""))
+    for record in cleaned:
+        record.setdefault("company_id", company_id)
+
+    ok = True
     for i in range(0, len(cleaned), BATCH_SIZE):
         batch = cleaned[i:i + BATCH_SIZE]
-        _upload(rule_id, stream_name, batch, endpoint)
+        ok = _upload(rule_id, stream_name, batch, endpoint) and ok
+    return ok
 
 
 def write_lifecycle_event(conf: dict, event_type: str, tenant_id: str = "", details: str = "", extra: dict = None):
@@ -121,6 +148,11 @@ def write_lifecycle_event(conf: dict, event_type: str, tenant_id: str = "", deta
         "TimeGenerated": datetime.now(timezone.utc).isoformat(),
         "source":     "lifecycle",
         "event_type": event_type,
+        # Without this the row lands with an empty company, so a per-company
+        # query over the audit table silently skips every lifecycle event —
+        # the failures, in a multi-company deployment, of exactly the company
+        # somebody is investigating.
+        "company_id": str(conf.get("socradar_company_id", "")),
         "tenant_id":  tenant_id,
         "details":    details[:1000] if details else "",
     }
@@ -145,7 +177,12 @@ def write_former_audit(conf: dict, rows: list) -> bool:
 
 
 def write_audit(conf: dict, audit_results: list):
-    """Write audit summary records to SOCRadar_EntraID_Audit_CL table."""
+    """Write import run summaries to SOCRadar_ImportAudit_CL.
+
+    These fields do not exist in the former-sync audit schema, and a stream that
+    does not declare a column drops it without reporting an error — so the two
+    summaries need their own tables rather than a shared one.
+    """
     rule_id = conf.get("dcr_immutable_id")
     endpoint = conf.get("dcr_endpoint")
     if not rule_id or not endpoint:
@@ -158,12 +195,21 @@ def write_audit(conf: dict, audit_results: list):
         records.append({
             "TimeGenerated":    ts,
             "source":           r.get("source", ""),
+            "company_id":       str(r.get("company_id", "")),
             "total_records":    r.get("total", 0),
             "employee_records": r.get("employees", 0),
             "found_count":      r.get("found", 0),
             "not_found_count":  r.get("not_found", 0),
             "actions_taken":    r.get("actions", 0),
             "error_count":      r.get("errors", 0),
+            "domain_filtered":  r.get("domain_filtered", 0),
+            "no_address_count": r.get("no_address", 0),
+            "lookup_disabled_count": r.get("lookup_disabled", 0),
+            "no_token_count":   r.get("no_token", 0),
+            "lookup_failed_count": r.get("lookup_failed", 0),
+            "capped":           bool(r.get("capped", False)),
+            "truncated":        bool(r.get("truncated", False)),
             "duration_sec":     float(r.get("duration", 0)),
+            "event_type":       "import_run_summary",
         })
-    return _upload(rule_id, AUDIT_STREAM, records, endpoint)
+    return _upload(rule_id, IMPORT_AUDIT_STREAM, records, endpoint)

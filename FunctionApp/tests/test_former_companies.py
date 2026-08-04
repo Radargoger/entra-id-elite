@@ -61,6 +61,23 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(rows[0]["api_key"], "")
         self.assertIn("K330", errors[0])
 
+    def test_the_indirection_accepts_the_camelcase_spelling_too(self):
+        """Every other field takes both spellings; this one did not, and the
+        row that used the camelCase name kept no key and raised no error — the
+        company was simply never read. The live deployment writes camelCase."""
+        raw = ('[{"companyId": "330", "tenantIds": "t1",'
+               '  "apiKeySetting": "K330", "actorEmail": "a@x.com"}]')
+        rows, errors = parse_company_map(raw, {"K330": "secret330"})
+        self.assertEqual(errors, [])
+        self.assertEqual(rows[0]["api_key"], "secret330")
+
+    def test_an_unresolvable_camelcase_reference_is_reported(self):
+        raw = '[{"companyId": "330", "tenantIds": "t1", "apiKeySetting": "K330"}]'
+        rows, errors = parse_company_map(raw, {})
+        self.assertEqual(rows[0]["api_key"], "")
+        self.assertTrue(any("K330" in e for e in errors),
+                        "a reference that resolves to nothing has to say so")
+
     def test_arm_grid_aliases_and_csv_tenants(self):
         # createUiDefinition EditableGrid emits camelCase + CSV tenant strings.
         raw = ('[{"companyId": "330", "tenantIds": "te330, te331 ,te330",'
@@ -141,7 +158,7 @@ class EffectiveApplyTests(unittest.TestCase):
 
 class ComposeTests(unittest.TestCase):
 
-    KW = dict(ruleset_mode="standart", include_deleted=True,
+    KW = dict(ruleset_mode="standard", include_deleted=True,
               enable_former_sync=True, enable_cross=True)
     ROW = {"company_id": "330", "own_tenants": ["te330"], "api_key": "k", "actor_email": "a@x.com"}
 

@@ -1,5 +1,5 @@
 """
-Single-writer lease + bounded client retry tests (backlog P0, 2026-07-25).
+Single-writer lease + bounded client retry tests (hardening).
 """
 import os
 import sys
@@ -9,8 +9,8 @@ import unittest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-# azure importlarini stub'la (test_real_client.py ile ayni desen — InMemory
-# lock ve _send saf, azure SDK'ya dokunmaz)
+# Stub the azure imports (same pattern as test_real_client.py — the InMemory
+# lock and _send are pure and never touch the azure SDK).
 azure_pkg = types.ModuleType("azure")
 tables_mod = types.ModuleType("azure.data.tables")
 tables_mod.TableServiceClient = object

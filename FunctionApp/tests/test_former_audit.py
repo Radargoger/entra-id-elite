@@ -75,7 +75,7 @@ class AuditRowTests(unittest.TestCase):
 class PreviewTests(unittest.TestCase):
 
     FCONF = {"socradar_company_id": "330", "former_client_mode": "mock",
-             "former_apply_changes": False, "ruleset_mode": "standart"}
+             "former_apply_changes": False, "ruleset_mode": "standard"}
 
     def _payload(self, plan=None, populations=None):
         return build_preview_payload(

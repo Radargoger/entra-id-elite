@@ -10,6 +10,7 @@ import logging
 import os
 import time
 import requests
+from urllib.parse import quote
 
 try:
     from azure.identity import ManagedIdentityCredential, ClientAssertionCredential
@@ -22,8 +23,13 @@ except ImportError:
 logger = logging.getLogger("socradar.entra.graph")
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
-GRAPH_BETA  = "https://graph.microsoft.com/beta"
 LOGIN_URL   = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
+
+# Properties the user lookup has to ask for by name. Graph answers
+# GET /users/{id} with a fixed default set of eleven properties and
+# accountEnabled is not one of them, so anything outside that set has to be
+# selected or it never arrives and nobody is told.
+LOOKUP_SELECT = "id,userPrincipalName,accountEnabled"
 
 
 def _graph_request(method: str, url: str, headers: dict, json=None, timeout: int = 15, max_retries: int = 3):
@@ -39,7 +45,19 @@ def _graph_request(method: str, url: str, headers: dict, json=None, timeout: int
             resp = requests.request(method, url, headers=headers, json=json, timeout=timeout)
         else:
             resp = requests.request(method, url, headers=headers, timeout=timeout)
-        if resp.status_code != 429 or attempt >= max_retries:
+        # 429 means Graph rejected the request before doing anything with it, so
+        # replaying it is safe whatever the method.
+        #
+        # 503/504 carry no such promise: the gateway may have carried the change
+        # out and lost the reply. Replaying a directory mutation there had a
+        # specific cost — the second attempt at an MFA-method delete answers 404
+        # for work that already happened, and the caller writes "no action
+        # taken" into the audit trail for an action nobody can undo. A read is
+        # free to retry; a write is returned as-is so the caller reports "we do
+        # not know" rather than something false.
+        retryable = resp.status_code == 429 or (
+            resp.status_code in (503, 504) and method.upper() in ("GET", "HEAD"))
+        if not retryable or attempt >= max_retries:
             return resp
         retry_after_raw = resp.headers.get("Retry-After", "2")
         try:
@@ -48,8 +66,9 @@ def _graph_request(method: str, url: str, headers: dict, json=None, timeout: int
             retry_after = 2
         retry_after = max(1, min(retry_after, 30))
         logger.warning(
-            "[ENTRA] 429 throttled on %s %s — sleeping %ds (attempt %d/%d)",
-            method, url.rsplit('/', 2)[-1], retry_after, attempt + 1, max_retries
+            "[ENTRA] HTTP %d on %s %s — sleeping %ds (attempt %d/%d)",
+            resp.status_code, method, url.rsplit('/', 2)[-1], retry_after,
+            attempt + 1, max_retries
         )
         time.sleep(retry_after)
         attempt += 1
@@ -92,8 +111,17 @@ def _classify_token_error(err_description: str) -> str | None:
     return None
 
 
-_graph_credential = None
-_graph_credential_key: tuple = ("", "")
+# One store, not two. Held as a single (key, credential) pair because two
+# separate globals cannot be published together: a thread that had written the
+# credential but not yet its key left the pair inconsistent, and a second
+# thread reading in that window took the cache-hit path and minted a token for
+# the wrong tenant. A tuple assignment is one store, so every reader sees
+# either the whole old pair or the whole new one.
+#
+# That mattered more than a stale token: the wrong token here means one
+# company's leak run looking up, and acting on, another company's directory,
+# while the audit row still names the first company's tenant.
+_graph_credential: tuple | None = None
 
 
 def _build_graph_credential(tenant_id: str, client_id: str):
@@ -125,14 +153,20 @@ def get_graph_token(tenant_id: str, client_id: str) -> str:
     App Registration's Graph permissions (portal-managed) apply.
     No client_secret needed.
     """
-    global _graph_credential, _graph_credential_key
+    global _graph_credential
     key = (tenant_id, client_id)
-    if _graph_credential is None or _graph_credential_key != key:
-        _graph_credential = _build_graph_credential(tenant_id, client_id)
-        _graph_credential_key = key
+    # One read of the pair, one write of the pair. Two timers and the preview
+    # endpoints all reach this function, so a credential must never be usable
+    # apart from the key that says which tenant it belongs to.
+    cached = _graph_credential
+    if cached is None or cached[0] != key:
+        credential = _build_graph_credential(tenant_id, client_id)
+        _graph_credential = (key, credential)
+    else:
+        credential = cached[1]
 
     try:
-        token = _graph_credential.get_token("https://graph.microsoft.com/.default")
+        token = credential.get_token("https://graph.microsoft.com/.default")
         logger.info("[ENTRA] Graph token acquired via Workload Identity Federation")
         return token.token
     except ClientAuthenticationError as e:
@@ -154,7 +188,15 @@ def lookup_user(email: str, graph_headers: dict) -> tuple:
     Caller uses status to distinguish 404 (not found) from 403 (permission denied)
     without relying on module-level state (thread-safe for future MSSP concurrency).
     """
-    url = f"{GRAPH_BASE}/users/{email}"
+    # The address comes from a third-party feed. Dropped into the path unescaped,
+    # a '#' truncates the request and a '?' turns the rest into query parameters,
+    # so the lookup would silently ask about someone else.
+    #
+    # $select is not a nicety: Graph's default projection for GET /users/{id}
+    # leaves accountEnabled OUT. Without asking for it the audit trail records
+    # whether the account was live from a field that never arrived.
+    url = (f"{GRAPH_BASE}/users/{quote(email, safe='@.')}"
+           f"?$select={LOOKUP_SELECT}")
     try:
         resp = _graph_request("GET", url, graph_headers, timeout=15)
         if resp.status_code == 200:
@@ -272,9 +314,12 @@ def force_password_change(user_id: str, graph_headers: dict) -> bool:
 def confirm_compromised(user_id: str, graph_headers: dict) -> bool:
     """
     Confirm user as compromised in Identity Protection.
-    Requires IdentityRiskyUser.ReadWrite.All + P1/P2 license.
+    Requires IdentityRiskyUser.ReadWrite.All and an Entra ID P2 licence
+    (the riskyUsers API is P2, not P1 — the docs here used to overpromise).
+    The call is on v1.0 now; it lived on beta long after Microsoft shipped
+    it in v1.0, which was a compatibility bet with no upside.
     """
-    url = f"{GRAPH_BETA}/riskyUsers/confirmCompromised"
+    url = f"{GRAPH_BASE}/identityProtection/riskyUsers/confirmCompromised"
     body = {"userIds": [user_id]}
     try:
         resp = _graph_request("POST", url, graph_headers, json=body, timeout=15)

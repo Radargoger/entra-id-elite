@@ -86,7 +86,11 @@ def parse_company_map(raw: str, env: dict) -> tuple:
         seen.add(company_id)
 
         api_key = str(item.get("api_key") or item.get("apiKey") or "").strip()
-        key_setting = str(item.get("api_key_setting") or "").strip()
+        # Both spellings, like every other field here. Accepting apiKey but not
+        # apiKeySetting failed silently: the row kept no key and no reference,
+        # so it passed validation and the company was simply never read.
+        key_setting = str(item.get("api_key_setting")
+                          or item.get("apiKeySetting") or "").strip()
         if not api_key and key_setting:
             api_key = str((env or {}).get(key_setting) or "").strip()
             if not api_key:
@@ -100,6 +104,27 @@ def parse_company_map(raw: str, env: dict) -> tuple:
             "actor_email": str(item.get("actor_email") or item.get("actorEmail")
                                or "").strip().lower(),
         })
+
+    # A tenant may belong to exactly one company. Two rows claiming the same
+    # tenant would search one directory for both companies' findings and act in
+    # it for both — the isolation this map exists to enforce, quietly gone. The
+    # portal grid cannot prevent it either (its regex checks each cell's GUID
+    # shape, not uniqueness across rows). Ambiguous ownership cannot be
+    # resolved by picking a winner, so every row touching the shared tenant is
+    # dropped, loudly.
+    tenant_owners = {}
+    for row in rows:
+        for tid in row["own_tenants"]:
+            tenant_owners.setdefault(tid.lower(), []).append(row["company_id"])
+    contested = {tid: owners for tid, owners in tenant_owners.items()
+                 if len(owners) > 1}
+    if contested:
+        dropped = sorted({cid for owners in contested.values() for cid in owners})
+        for tid, owners in sorted(contested.items()):
+            errors.append(f"tenant {tid} is claimed by companies "
+                          f"{', '.join(sorted(owners))} — a tenant can have "
+                          f"only one owner; all of them dropped")
+        rows = [r for r in rows if r["company_id"] not in dropped]
     return rows, errors
 
 
@@ -167,6 +192,12 @@ def compose_company(row: dict, group_tenants: list, tenant_data: dict, *,
     an unread GROUP tenant only marks the snapshot incomplete (the planner
     then withholds all mutation for this company).
     """
+    # No spelling fix-up here on purpose. The only value this function reads is
+    # "strict", so normalising anything else changed nothing observable and read
+    # as a guarantee it was not providing. The legacy "standart" spelling that
+    # running installations still send is normalised once, in config.load_former,
+    # which is where it can be tested.
+
     for tid in row["own_tenants"]:
         entry = tenant_data.get(tid)
         if entry is None or not entry.get("read_ok"):

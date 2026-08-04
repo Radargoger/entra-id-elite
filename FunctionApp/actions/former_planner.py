@@ -1,7 +1,7 @@
 """
 Ownership-aware reconcile planner for the Former Employee sync (pure logic).
 
-Why this module exists (PRODUCTION-HARDENING-BACKLOG P0):
+Why this module exists:
 the old reconcile computed
 
     to_remove = current - desired
@@ -155,14 +155,36 @@ def execute_former_plan(plan, client, ownership, apply_changes: bool, source: st
 
     if plan.add:
         client.add(plan.add, source=source)
-        after_add = client.get_list()
+        # The add is committed once that call returns. If the readback then
+        # fails we cannot tell which entries landed, and both ways of guessing
+        # cost something real: claiming them all risks retiring an entry the
+        # customer added themselves, claiming none leaves ours on the list with
+        # nobody able to remove them. So record the uncertainty by name and stop
+        # here rather than resolving it silently — an unowned entry used to be
+        # permanent and invisible.
+        try:
+            after_add = client.get_list()
+        except Exception as e:
+            result["unconfirmed_adds"] = len(plan.add)
+            result["unconfirmed_reason"] = f"add readback failed: {str(e)[:200]}"
+            result["applied"] = True
+            return result
         confirmed = [e for e in plan.add if e in after_add]
         ownership.mark_owned(confirmed)
         result["added"] = len(confirmed)
 
     if plan.remove:
         client.remove(plan.remove)
-        after_remove = client.get_list()
+        try:
+            after_remove = client.get_list()
+        except Exception as e:
+            # A removal we cannot confirm is the safer half of the same problem:
+            # nothing extra was published, but the tombstone is missing, so the
+            # next run re-attempts the removal. Say so instead of reporting zero.
+            result["unconfirmed_removes"] = len(plan.remove)
+            result["unconfirmed_reason"] = f"remove readback failed: {str(e)[:200]}"
+            result["applied"] = True
+            return result
         confirmed = [e for e in plan.remove if e not in after_remove]
         ownership.mark_tombstone(confirmed)
         result["removed"] = len(confirmed)

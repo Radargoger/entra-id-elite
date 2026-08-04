@@ -1,11 +1,11 @@
 """
-Ownership ledger for the Former Employee sync (PRODUCTION-HARDENING-BACKLOG P0).
+Ownership ledger for the Former Employee sync .
 
 Records which emails on the SOCRadar former list Elite created and confirmed,
 so the reconcile planner can distinguish OUR records (removal candidates) from
 EXTERNAL records added by the UI or another integration (always preserved).
 
-Privacy (backlog P0 rule 8, PII): the ledger stores sha256(normalized email),
+Privacy (PII): the ledger stores sha256(normalized email),
 never the raw address. Membership queries hash the caller's emails and compare,
 so the raw list never has to be persisted here.
 

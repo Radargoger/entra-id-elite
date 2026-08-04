@@ -72,11 +72,21 @@ def get_start_date(checkpoint: dict, initial_lookback_minutes: int, initial_star
 
     Priority:
       1. Existing checkpoint last_start_date (resume from where we left off)
-      2. InitialStartDate parameter (customer-specified date, e.g. "2025-06-15")
-      3. Calculated from InitialLookbackMinutes (now - N minutes)
+      2. active_window_start — a window a previous run opened and did not finish
+      3. InitialStartDate parameter (customer-specified date, e.g. "2025-06-15")
+      4. Calculated from InitialLookbackMinutes (now - N minutes)
+
+    Step 2 exists because step 4 moves. A run that holds its window records no
+    last_start_date, so the next run recomputed the start from the lookback and
+    landed a day later. The window shifted, and the idempotency key derived from
+    it shifted with it: the ledger no longer recognised a repeat, and someone
+    already acted on could be acted on a second time — including by the actions
+    that cannot be undone.
     """
     if checkpoint.get("last_start_date"):
         return str(checkpoint["last_start_date"])
+    if checkpoint.get("active_window_start"):
+        return str(checkpoint["active_window_start"])
     if initial_start_date:
         return str(initial_start_date)
     lookback_dt = datetime.now(timezone.utc) - timedelta(minutes=initial_lookback_minutes)

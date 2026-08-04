@@ -4,12 +4,11 @@ Former Employee observability builders (pure logic, no I/O).
 Two consumers, two PII postures — decided 2026-07-25 (option a):
 
   * build_former_audit_rows -> PERSISTENT Log Analytics audit
-    (SOCRadar_EntraID_Audit_CL). Emails as sha256 hashes only (backlog P0
-    rule 8: clear addresses never persist in logs). Answers "what happened,
+    (SOCRadar_EntraID_Audit_CL). Emails as sha256 hashes only. Answers "what happened,
     when, how many, which record (by hash)" forever.
 
   * build_preview_payload   -> EPHEMERAL authenticated GET response.
-    The manager's "deaktif user'lari GOSTER": names WHO would be added or
+    Answers "show me the deactivated users": names WHO would be added or
     removed, in the clear, computed on demand and never stored. `preserve`
     (external records, e.g. a customer's own list) is COUNT-ONLY — the
     plan never touches those and their addresses are not ours to display.
@@ -102,7 +101,7 @@ def build_preview_payload(stats: dict, populations: dict, plan, manual: set,
         "snapshot_complete": bool(stats.get("snapshot_complete", False)),
         "guard_notes": list(guard_notes or []),
         "populations": {
-            # GOSTER: the disabled/deleted/sibling people behind the plan.
+            # Shown by name: the disabled/deleted/sibling people behind the plan.
             "own_disabled": _capped(populations.get("own_disabled", ())),
             "own_deleted":  _capped(populations.get("own_deleted", ())),
             "sibling_active": _capped(populations.get("sibling_active", ())),

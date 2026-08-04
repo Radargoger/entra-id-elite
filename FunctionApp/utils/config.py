@@ -3,7 +3,10 @@ Configuration loader — reads all settings from Azure App Settings (environment
 Validates required fields and provides typed accessors.
 """
 
+import logging
 import os
+
+_logger = logging.getLogger("socradar.entra.config")
 
 
 def _get(key: str, default=None, required: bool = False):
@@ -14,19 +17,42 @@ def _get(key: str, default=None, required: bool = False):
 
 
 def _bool(key: str, default: bool = False) -> bool:
-    val = os.environ.get(key, "").lower()
-    if val in ("true", "1", "yes"):
+    raw = os.environ.get(key, "")
+    val = raw.strip().lower()
+    if val in ("true", "1", "yes", "on"):
         return True
-    if val in ("false", "0", "no"):
+    if val in ("false", "0", "no", "off"):
+        return False
+    if val:
+        # Several of these switches arm directory mutations and default to on.
+        # A value we do not recognise used to fall through to that default, so
+        # "ENABLE_REVOKE_SESSION=disabled" left the action ARMED with only an
+        # error log to say so. We cannot guess what was meant, but between the
+        # two wrong guesses only one changes somebody's directory: an
+        # unrecognised value now reads as False. Off is the state every switch
+        # here can safely be in.
+        _logger.error(
+            "App Setting %s has an unrecognised value %r; treating it as "
+            "false. Use true or false.", key, raw.strip())
         return False
     return default
 
 
-def _int(key: str, default: int = 0) -> int:
-    try:
-        return int(os.environ.get(key, str(default)))
-    except (ValueError, TypeError):
+def _int(key: str, default: int = 0, on_invalid: int = None) -> int:
+    """on_invalid: what an unparseable value becomes. Caps pass 0 so that a
+    typo in a mutation ceiling closes the gate rather than silently restoring
+    the default (a broken FORMER_MAX_REMOVALS meant 100, not 0)."""
+    raw = os.environ.get(key, "")
+    if not raw.strip():
         return default
+    try:
+        return int(raw)
+    except (ValueError, TypeError):
+        fallback = default if on_invalid is None else on_invalid
+        _logger.error(
+            "App Setting %s has a non-numeric value %r; using %d.",
+            key, raw.strip(), fallback)
+        return fallback
 
 
 def _list(key: str, default: str = "") -> list:
@@ -66,7 +92,7 @@ def load() -> dict:
                 "Required App Setting missing: ENTRA_TENANT_IDS (or legacy ENTRA_TENANT_ID)"
             )
 
-    return {
+    conf = {
         # SOCRadar API
         "socradar_base_url":   _get("SOCRADAR_BASE_URL", default="https://platform.socradar.com"),
         "socradar_api_key":    _get("SOCRADAR_API_KEY", required=True),
@@ -112,8 +138,31 @@ def load() -> dict:
         "enable_resolve_alarm":     _bool("ENABLE_RESOLVE_ALARM", False),
         "security_group_id":        _get("SECURITY_GROUP_ID", default=""),
 
-        # Password policy
-        "enable_log_plaintext_password": _bool("ENABLE_LOG_PLAINTEXT_PASSWORD", False),
+        # Directory mutations are gated twice, independently of the toggles above.
+        # apply is the only mode that touches Entra ID; plan resolves every action
+        # and records it without calling Graph.
+        "entra_action_mode": (_get("ENTRA_ACTION_MODE", default="plan") or "plan").lower(),
+        # Absolute ceiling per run. A leak feed that suddenly returns thousands of
+        # records must not turn into thousands of account mutations.
+        "entra_max_actions_per_run": _int("ENTRA_MAX_ACTIONS_PER_RUN", 50, on_invalid=0),
+        # How long the idempotency ledger keeps a window. Rows older than this
+        # cannot be reached by any re-read, so keeping them only grows the
+        # table. Floored in action_ledger.cutoff_date, not here, so the floor
+        # holds whatever the setting says.
+        "leak_ledger_retention_days": _int("LEAK_LEDGER_RETENTION_DAYS", 90),
+
+        # Company map (Topology 2). When set, the import loops over its rows and
+        # each company is searched ONLY in its own tenants.
+        "company_map_raw": _get("FORMER_COMPANY_MAP", default=""),
+
+        # Pages pulled from a feed in one run. Keep it small enough that the
+        # records fetched can also be looked up in the same run.
+        "max_pages_per_run": _int("MAX_PAGES_PER_RUN", 50),
+
+        # No password policy switch here on purpose: whether a credential
+        # arrives masked or in the clear is set per company in the SOCRadar
+        # platform, upstream of this app. A second switch on this side could
+        # only contradict the source.
 
         # Log Analytics (read-only — used by tests/diagnostics, not for ingestion)
         "workspace_id":  _get("WORKSPACE_ID", default=""),
@@ -136,6 +185,8 @@ def load() -> dict:
         "initial_lookback_minutes": _int("INITIAL_LOOKBACK_MINUTES", 43200),
         "initial_start_date": _get("INITIAL_START_DATE", default=""),
     }
+
+    return conf
 
 
 def load_former() -> dict:
@@ -174,18 +225,37 @@ def load_former() -> dict:
 
     former_client_mode = (_get("FORMER_CLIENT_MODE", default="mock") or "mock").lower()
 
-    return {
+    conf_former = {
         "company_map_raw":  company_map_raw,
         "own_tenant_ids":   own,
-        "group_tenant_ids": [t for t in _list("GROUP_TENANT_IDS") if t not in own],
+        # Kept verbatim. Filtering here against `own` looked like it stopped
+        # someone listing their own tenant as a group tenant, but `own` falls
+        # back to the deployment tenant when the template writes no
+        # OWN_TENANT_IDS -- which it never does. A holding tenant entered in the
+        # form was therefore dropped whenever the app was deployed into that
+        # same tenant, and dropped silently: with nothing in the list,
+        # group_read == len(group) is 0 == 0, so the snapshot still counted as
+        # complete and removals were not withheld. Nothing looked wrong.
+        # The exclusion belongs per company, in
+        # actions/former_companies.derive_group_tenants, which knows which
+        # tenants each row owns. One caveat, because an earlier version of this
+        # comment overstated the fix: in legacy single-company mode (no
+        # FORMER_COMPANY_MAP) the synthesised row's own tenants come from this
+        # same fallback, so a holding tenant that is also the deployment tenant
+        # is still dropped there, and still silently. Every deployment the
+        # portal produces carries a map (the grid requires at least one row with
+        # a tenant), and without a map the former sync does not run at all
+        # because the template writes SOCRADAR_COMPANY_ID as a placeholder. The
+        # remaining case is a hand-built CLI deployment.
+        "group_tenant_ids": _list("GROUP_TENANT_IDS"),
         "client_id":        _get("ENTRA_CLIENT_ID", required=True),
 
         "enable_former_sync":           _bool("ENABLE_FORMER_SYNC", True),
         "enable_cross_tenant_suppress": _bool("ENABLE_CROSS_TENANT_SUPPRESS", True),
         "include_deleted_users":        _bool("INCLUDE_DELETED_USERS", True),
-        # standart: disabled Member without HR signal counts as former (K4a).
+        # standard: disabled Member without HR signal counts as former (K4a).
         # strict:   such records are only logged as review-needed, not sent (K4b).
-        "ruleset_mode": (_get("RULESET_MODE", default="standart") or "standart").lower(),
+        "ruleset_mode": (_get("RULESET_MODE", default="standard") or "standard").lower(),
 
         # SOCRadar former list client — paths per DRP Former Employees API
         # (openapi drp_former_employeeapi.yaml, 2026-07-16).
@@ -198,8 +268,8 @@ def load_former() -> dict:
         "former_add_path":    _get("FORMER_ADD_PATH", default="/api/company/{company_id}/dark-web-monitoring/add-former-employee"),
         "former_remove_path": _get("FORMER_REMOVE_PATH", default="/api/company/{company_id}/dark-web-monitoring/delete-former-employee"),
         "former_batch_size":  _int("FORMER_BATCH_SIZE", 100),
-        # HTTP read timeout (s). Live evidence: a large former list (523 entries,
-        # preprod/330) behind Cloudflare exceeds a 30s read. Default 60.
+        # HTTP read timeout (s). A large former list behind Cloudflare exceeds
+        # a 30s read, so the default is 60.
         "former_http_timeout": _int("FORMER_HTTP_TIMEOUT", 60),
         # Acting user's email — the API requires an "email" field on every
         # add/delete call and validates it belongs to the company on the
@@ -211,16 +281,16 @@ def load_former() -> dict:
         # Storage (mock client + checkpoint)
         "storage_account_name": _get("STORAGE_ACCOUNT_NAME", required=True),
 
-        # P0 safety (PRODUCTION-HARDENING-BACKLOG): the reconcile is ownership
+        # Safety: the reconcile is ownership
         # aware and plan-only by default. Real deletion never happens unless
         # apply is explicitly turned on AND the snapshot is complete AND the plan
         # is under the caps. These defaults keep an elite deployment safe even
         # with real credentials (contrast: the Taegis bridge shipped apply-all;
         # elite is production-blocked, so its safe default is plan-only).
         "former_apply_changes":      _bool("FORMER_APPLY_CHANGES", False),
-        "former_max_adds":           _int("FORMER_MAX_ADDS", 500),
-        "former_max_removals":       _int("FORMER_MAX_REMOVALS", 100),
-        "former_max_removal_percent": _int("FORMER_MAX_REMOVAL_PERCENT", 50),
+        "former_max_adds":           _int("FORMER_MAX_ADDS", 500, on_invalid=0),
+        "former_max_removals":       _int("FORMER_MAX_REMOVALS", 100, on_invalid=0),
+        "former_max_removal_percent": _int("FORMER_MAX_REMOVAL_PERCENT", 50, on_invalid=0),
 
         # Data-completeness guard (actions/former_guard.py): a per-tenant email
         # count dropping to 0 or by more than drop_percent vs the last healthy
@@ -234,3 +304,22 @@ def load_former() -> dict:
         "dcr_immutable_id": _get("DCR_IMMUTABLE_ID", default=""),
         "dcr_endpoint":     _get("DCR_ENDPOINT", default=""),
     }
+
+    # "standart" was the canonical spelling in earlier releases and is still the
+    # value set in running installations. Accept it and normalise, so upgrading
+    # to this build does not silently change what those deployments do.
+    # Anything else is a typo, and a typo must not pick the looser mode: an
+    # unknown value used to fall through to standard behaviour (disabled users
+    # sent to the former list). Unknown now reads as strict — log-and-review,
+    # no list writes for those records — until someone fixes the setting.
+    ruleset_mode = conf_former["ruleset_mode"]
+    if ruleset_mode == "standart":
+        ruleset_mode = "standard"
+    elif ruleset_mode not in ("standard", "strict"):
+        _logger.error(
+            "RULESET_MODE has an unrecognised value %r; running as 'strict' "
+            "(log-only for disabled users) until it is corrected.", ruleset_mode)
+        ruleset_mode = "strict"
+    conf_former["ruleset_mode"] = ruleset_mode
+
+    return conf_former

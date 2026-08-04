@@ -5,8 +5,8 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.45.15.27210",
-      "templateHash": "10568765363404491107"
+      "version": "0.46.1.21595",
+      "templateHash": "3203697600465452878"
     }
   },
   "parameters": {
@@ -62,6 +62,20 @@
         "description": "Write to the platform former-employee lists. false = plan-only trial: the sync reads, plans and audits but never mutates."
       }
     },
+    "EnableCrossTenantSuppress": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Suppress a person across every company in the map: someone still active in one tenant is added to the former-employee list of the others. Only meaningful when the companies belong to the same organisation. Turn this off if any two of them are unrelated, so one customer's staff never appears in another's list."
+      }
+    },
+    "GroupTenantIds": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Comma-separated tenant GUIDs that belong to the group but have no company row of their own, such as a holding tenant. Their active members are suppressed for every company; they never receive a former list. The companies in the grid already suppress each other, so this is only for tenants the grid cannot express."
+      }
+    },
     "FormerClientMode": {
       "type": "string",
       "defaultValue": "real",
@@ -108,13 +122,13 @@
     },
     "RulesetMode": {
       "type": "string",
-      "defaultValue": "standart",
+      "defaultValue": "standard",
       "allowedValues": [
-        "standart",
+        "standard",
         "strict"
       ],
       "metadata": {
-        "description": "standart sends disabled Members to the former list; strict only logs them as review-needed."
+        "description": "standard sends disabled Members to the former list; strict only logs them as review-needed."
       }
     },
     "FormerMaxAdds": {
@@ -138,9 +152,115 @@
         "description": "Removals may not exceed this percentage of the remote list."
       }
     },
+    "EnableLeakMonitoring": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Also monitor leaked credentials. Each company row is checked against its own tenants only."
+      }
+    },
+    "LeakSources": {
+      "type": "array",
+      "defaultValue": [
+        "botnet",
+        "pii"
+      ],
+      "allowedValues": [
+        "botnet",
+        "pii",
+        "vip"
+      ],
+      "metadata": {
+        "description": "Leak sources to pull from the platform."
+      }
+    },
+    "LeakResponse": {
+      "type": "string",
+      "defaultValue": "logOnly",
+      "allowedValues": [
+        "logOnly",
+        "respond"
+      ],
+      "metadata": {
+        "description": "What to do with a match. Log only records the match; Respond also changes the account in Entra ID."
+      }
+    },
+    "LeakResponseActions": {
+      "type": "array",
+      "defaultValue": [
+        "revokeSessions"
+      ],
+      "allowedValues": [
+        "revokeSessions",
+        "forcePasswordChange",
+        "disableAccount",
+        "resetMfa",
+        "confirmCompromised"
+      ],
+      "metadata": {
+        "description": "Actions taken when LeakResponse is respond."
+      }
+    },
+    "LeakMaxActionsPerRun": {
+      "type": "int",
+      "defaultValue": 50,
+      "metadata": {
+        "description": "Ceiling on account changes per company per source in each run — a run with three companies and two sources can change up to six times this number. Once a slot reaches it, matches keep being recorded, the remaining actions wait, and the window is re-read next run."
+      }
+    },
+    "LeakLedgerRetentionDays": {
+      "type": "int",
+      "defaultValue": 90,
+      "minValue": 30,
+      "metadata": {
+        "description": "Days the idempotency ledger keeps a window before its rows are removed. Rows older than this cannot be reached by any re-read, so keeping them only grows the table. Values below 30 are raised to 30 by the app."
+      }
+    },
+    "LeakImportIntervalHours": {
+      "type": "int",
+      "defaultValue": 6,
+      "allowedValues": [
+        1,
+        3,
+        6,
+        12,
+        24
+      ],
+      "metadata": {
+        "description": "Hours between leak import runs."
+      }
+    },
+    "LeakInitialLookbackDays": {
+      "type": "int",
+      "defaultValue": 30,
+      "allowedValues": [
+        7,
+        30,
+        90,
+        180,
+        365
+      ],
+      "metadata": {
+        "description": "How many days of history to scan on the very first run (before a checkpoint exists). Larger values catch older breaches but make the first run slower."
+      }
+    },
+    "SecurityGroupId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Security group used by the add/remove group actions. Leave empty to disable them."
+      }
+    },
+    "VerifiedDomains": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Your own email domains, comma-separated. When set, only addresses in these domains are looked up in Entra ID and everything else in a feed is dropped before it leaves the app. Leave empty to look up every address the feed returns."
+      }
+    },
     "PackageUri": {
       "type": "string",
-      "defaultValue": "https://github.com/orcunsami/entra-id-elite/releases/download/v1.0.0/FunctionApp.zip",
+      "defaultValue": "https://github.com/Radargoger/entra-id-elite/releases/download/v1.0.0/FunctionApp.zip",
       "metadata": {
         "description": "URL of the FunctionApp deployment package (zip). Leave empty to deploy infrastructure only and publish code separately."
       }
@@ -158,10 +278,12 @@
     "socradarBaseUrl": "[if(equals(parameters('Environment'), 'preprod'), 'https://preprod.socradar.com', 'https://platform.socradar.com')]",
     "formerSchedule": "[if(less(parameters('FormerSyncIntervalMinutes'), 60), format('0 */{0} * * * *', parameters('FormerSyncIntervalMinutes')), format('0 0 */{0} * * *', div(parameters('FormerSyncIntervalMinutes'), 60)))]",
     "graphUniqueAppName": "[format('entra-former-{0}', variables('suffix'))]",
-    "eliteGraphRoleIds": [
-      "df021288-bdef-4463-88db-98f22de89214",
-      "7ab1d382-f21e-4acd-a863-ba3e13f7da61"
+    "readGraphRoleIds": [
+      "df021288-bdef-4463-88db-98f22de89214"
     ],
+    "respondOn": "[and(parameters('EnableLeakMonitoring'), equals(parameters('LeakResponse'), 'respond'))]",
+    "actionGraphRoleIds": "[union(if(and(variables('respondOn'), contains(parameters('LeakResponseActions'), 'revokeSessions')), createArray('77f3a031-c388-4f99-b373-dc68676a979e'), createArray()), if(and(variables('respondOn'), contains(parameters('LeakResponseActions'), 'forcePasswordChange')), createArray('cc117bb9-00cf-4eb8-b580-ea2a878fe8f7'), createArray()), if(and(variables('respondOn'), contains(parameters('LeakResponseActions'), 'disableAccount')), createArray('3011c876-62b7-4ada-afa2-506cbbecc68c'), createArray()), if(and(variables('respondOn'), contains(parameters('LeakResponseActions'), 'resetMfa')), createArray('50483e42-d915-4231-9639-7fdb7fd190e5'), createArray()), if(and(variables('respondOn'), contains(parameters('LeakResponseActions'), 'confirmCompromised')), createArray('656f6061-f9fe-4807-9708-6a2e0934df76'), createArray()), if(and(variables('respondOn'), not(empty(parameters('SecurityGroupId')))), createArray('dbaae8cf-10b5-4b86-a4a1-f871c94c6695'), createArray()))]",
+    "eliteGraphRoleIds": "[union(variables('readGraphRoleIds'), variables('actionGraphRoleIds'))]",
     "auditColumns": [
       {
         "name": "TimeGenerated",
@@ -262,6 +384,161 @@
       {
         "name": "details",
         "type": "string"
+      },
+      {
+        "name": "aadsts_code",
+        "type": "string"
+      }
+    ],
+    "leakCommonColumns": [
+      {
+        "name": "TimeGenerated",
+        "type": "datetime"
+      },
+      {
+        "name": "company_id",
+        "type": "string"
+      },
+      {
+        "name": "email",
+        "type": "string"
+      },
+      {
+        "name": "is_employee",
+        "type": "boolean"
+      },
+      {
+        "name": "source",
+        "type": "string"
+      },
+      {
+        "name": "alarm_id",
+        "type": "int"
+      },
+      {
+        "name": "password_present",
+        "type": "boolean"
+      },
+      {
+        "name": "password_masked",
+        "type": "string"
+      },
+      {
+        "name": "is_plaintext",
+        "type": "boolean"
+      },
+      {
+        "name": "entra_status",
+        "type": "string"
+      },
+      {
+        "name": "entra_tenant_id",
+        "type": "string"
+      },
+      {
+        "name": "entra_user_id",
+        "type": "string"
+      },
+      {
+        "name": "entra_account_enabled",
+        "type": "boolean"
+      },
+      {
+        "name": "severity",
+        "type": "string"
+      },
+      {
+        "name": "actions_taken",
+        "type": "dynamic"
+      }
+    ],
+    "botnetColumns": "[union(variables('leakCommonColumns'), createArray(createObject('name', 'url', 'type', 'string'), createObject('name', 'device_ip', 'type', 'string'), createObject('name', 'device_os', 'type', 'string'), createObject('name', 'country', 'type', 'string'), createObject('name', 'log_date', 'type', 'string'), createObject('name', 'password', 'type', 'string'), createObject('name', 'mfa_methods_deleted', 'type', 'int'), createObject('name', 'mfa_methods_skipped', 'type', 'int')))]",
+    "piiColumns": "[union(variables('leakCommonColumns'), createArray(createObject('name', 'source_name', 'type', 'string'), createObject('name', 'breach_date', 'type', 'string'), createObject('name', 'discovery_date', 'type', 'string'), createObject('name', 'password', 'type', 'string'), createObject('name', 'mfa_methods_deleted', 'type', 'int'), createObject('name', 'mfa_methods_skipped', 'type', 'int')))]",
+    "vipColumns": "[union(variables('leakCommonColumns'), createArray(createObject('name', 'keyword', 'type', 'string'), createObject('name', 'vip_name', 'type', 'string'), createObject('name', 'status', 'type', 'string'), createObject('name', 'discovery_date', 'type', 'string'), createObject('name', 'source_name', 'type', 'string'), createObject('name', 'mfa_methods_deleted', 'type', 'int'), createObject('name', 'mfa_methods_skipped', 'type', 'int')))]",
+    "importAuditColumns": [
+      {
+        "name": "TimeGenerated",
+        "type": "datetime"
+      },
+      {
+        "name": "source",
+        "type": "string"
+      },
+      {
+        "name": "company_id",
+        "type": "string"
+      },
+      {
+        "name": "total_records",
+        "type": "int"
+      },
+      {
+        "name": "employee_records",
+        "type": "int"
+      },
+      {
+        "name": "found_count",
+        "type": "int"
+      },
+      {
+        "name": "not_found_count",
+        "type": "int"
+      },
+      {
+        "name": "actions_taken",
+        "type": "int"
+      },
+      {
+        "name": "error_count",
+        "type": "int"
+      },
+      {
+        "name": "domain_filtered",
+        "type": "int"
+      },
+      {
+        "name": "no_address_count",
+        "type": "int"
+      },
+      {
+        "name": "lookup_disabled_count",
+        "type": "int"
+      },
+      {
+        "name": "no_token_count",
+        "type": "int"
+      },
+      {
+        "name": "lookup_failed_count",
+        "type": "int"
+      },
+      {
+        "name": "capped",
+        "type": "boolean"
+      },
+      {
+        "name": "truncated",
+        "type": "boolean"
+      },
+      {
+        "name": "duration_sec",
+        "type": "real"
+      },
+      {
+        "name": "event_type",
+        "type": "string"
+      },
+      {
+        "name": "tenant_id",
+        "type": "string"
+      },
+      {
+        "name": "details",
+        "type": "string"
+      },
+      {
+        "name": "aadsts_code",
+        "type": "string"
       }
     ]
   },
@@ -298,11 +575,11 @@
     "stateTables": {
       "copy": {
         "name": "stateTables",
-        "count": "[length(createArray('EntraIDState', 'FormerManual', 'FormerOwnership'))]"
+        "count": "[length(createArray('EntraIDState', 'FormerManual', 'FormerOwnership', 'LeakActionLedger'))]"
       },
       "type": "Microsoft.Storage/storageAccounts/tableServices/tables",
       "apiVersion": "2023-05-01",
-      "name": "[format('{0}/{1}/{2}', variables('storageAccountName'), 'default', createArray('EntraIDState', 'FormerManual', 'FormerOwnership')[copyIndex()])]",
+      "name": "[format('{0}/{1}/{2}', variables('storageAccountName'), 'default', createArray('EntraIDState', 'FormerManual', 'FormerOwnership', 'LeakActionLedger')[copyIndex()])]",
       "dependsOn": [
         "tableService"
       ]
@@ -378,13 +655,13 @@
     "adminConsentGrants": {
       "copy": {
         "name": "adminConsentGrants",
-        "count": "[length(variables('eliteGraphRoleIds'))]"
+        "count": "[length(variables('readGraphRoleIds'))]"
       },
       "condition": "[and(parameters('CreateAppRegistration'), parameters('GrantAdminConsent'))]",
       "import": "microsoftGraphV1_0",
       "type": "Microsoft.Graph/appRoleAssignedTo@v1.0",
       "properties": {
-        "appRoleId": "[variables('eliteGraphRoleIds')[copyIndex()]]",
+        "appRoleId": "[variables('readGraphRoleIds')[copyIndex()]]",
         "principalId": "[reference('appSp').id]",
         "resourceId": "[reference('graphSpRef').id]"
       },
@@ -428,7 +705,7 @@
             "value": "[resourceGroup().name]"
           }
         ],
-        "scriptContent": "      FIC_NAME=\"former-elite-${RG_NAME}-uami\"\n      EXISTING=$(az ad app federated-credential list --id \"$APP_ID\" --query \"[?subject=='${UAMI_PRINCIPAL}'].name\" -o tsv 2>/dev/null || echo \"\")\n      if [ -n \"$EXISTING\" ]; then\n        echo \"FIC already exists for UAMI ${UAMI_PRINCIPAL} on app ${APP_ID}: ${EXISTING}\"\n      elif az ad app federated-credential create --id \"$APP_ID\" --parameters \"{\n          \\\"name\\\": \\\"${FIC_NAME}\\\",\n          \\\"issuer\\\": \\\"https://login.microsoftonline.com/${TENANT_ID}/v2.0\\\",\n          \\\"subject\\\": \\\"${UAMI_PRINCIPAL}\\\",\n          \\\"audiences\\\": [\\\"api://AzureADTokenExchange\\\"]\n        }\"; then\n        echo \"FIC added\"\n      else\n        # Fail-soft: the deployment identity (UAMI) usually has no Entra\n        # app-write permission on a foreign App Registration. The app cannot\n        # run until the FIC exists, but failing the whole deployment here\n        # would strand the rest of the install. Surface the exact command.\n        echo \"WARNING: could not add FIC automatically (no Entra app-write permission).\"\n        echo \"Run manually as an owner of the App Registration:\"\n        echo \"az ad app federated-credential create --id ${APP_ID} --parameters '{\\\"name\\\":\\\"${FIC_NAME}\\\",\\\"issuer\\\":\\\"https://login.microsoftonline.com/${TENANT_ID}/v2.0\\\",\\\"subject\\\":\\\"${UAMI_PRINCIPAL}\\\",\\\"audiences\\\":[\\\"api://AzureADTokenExchange\\\"]}'\"\n      fi\n      exit 0\n    "
+        "scriptContent": "      FIC_NAME=\"former-elite-${RG_NAME}-uami\"\n      ADDED=false\n      EXISTING=$(az ad app federated-credential list --id \"$APP_ID\" --query \"[?subject=='${UAMI_PRINCIPAL}'].name\" -o tsv 2>/dev/null || echo \"\")\n      if [ -n \"$EXISTING\" ]; then\n        echo \"FIC already exists for UAMI ${UAMI_PRINCIPAL} on app ${APP_ID}: ${EXISTING}\"\n        ADDED=true\n      elif az ad app federated-credential create --id \"$APP_ID\" --parameters \"{\n          \\\"name\\\": \\\"${FIC_NAME}\\\",\n          \\\"issuer\\\": \\\"https://login.microsoftonline.com/${TENANT_ID}/v2.0\\\",\n          \\\"subject\\\": \\\"${UAMI_PRINCIPAL}\\\",\n          \\\"audiences\\\": [\\\"api://AzureADTokenExchange\\\"]\n        }\"; then\n        echo \"FIC added\"\n        ADDED=true\n      else\n        # Fail-soft: the deployment identity (UAMI) usually has no Entra\n        # app-write permission on a foreign App Registration. The app cannot\n        # run until the FIC exists, but failing the whole deployment here\n        # would strand the rest of the install. Surface the exact command.\n        echo \"WARNING: could not add FIC automatically (no Entra app-write permission).\"\n        echo \"Run the command from the deployment output 'ficManualCommand' as an owner of the App Registration.\"\n      fi\n      # Report what actually happened. The Outputs blade is the only place most\n      # operators look, so it must not claim a success the script did not\n      # achieve: without the FIC the app gets no Graph token and every directory\n      # lookup is skipped, quietly. Keep this JSON trivial -- quoting through\n      # bicep, ARM and the shell is a three-layer escaping trap, and a malformed\n      # output file fails the whole deployment.\n      if [ \"$ADDED\" = \"true\" ]; then\n        echo '{\"ficAdded\": true}' > \"$AZ_SCRIPTS_OUTPUT_PATH\"\n      else\n        echo '{\"ficAdded\": false}' > \"$AZ_SCRIPTS_OUTPUT_PATH\"\n      fi\n      exit 0\n    "
       },
       "dependsOn": [
         "managedIdentity"
@@ -460,6 +737,62 @@
         "workspace"
       ]
     },
+    "botnetTable": {
+      "type": "Microsoft.OperationalInsights/workspaces/tables",
+      "apiVersion": "2022-10-01",
+      "name": "[format('{0}/{1}', variables('workspaceName'), 'SOCRadar_Botnet_CL')]",
+      "properties": {
+        "schema": {
+          "name": "SOCRadar_Botnet_CL",
+          "columns": "[variables('botnetColumns')]"
+        }
+      },
+      "dependsOn": [
+        "workspace"
+      ]
+    },
+    "piiTable": {
+      "type": "Microsoft.OperationalInsights/workspaces/tables",
+      "apiVersion": "2022-10-01",
+      "name": "[format('{0}/{1}', variables('workspaceName'), 'SOCRadar_PII_CL')]",
+      "properties": {
+        "schema": {
+          "name": "SOCRadar_PII_CL",
+          "columns": "[variables('piiColumns')]"
+        }
+      },
+      "dependsOn": [
+        "workspace"
+      ]
+    },
+    "vipTable": {
+      "type": "Microsoft.OperationalInsights/workspaces/tables",
+      "apiVersion": "2022-10-01",
+      "name": "[format('{0}/{1}', variables('workspaceName'), 'SOCRadar_VIP_CL')]",
+      "properties": {
+        "schema": {
+          "name": "SOCRadar_VIP_CL",
+          "columns": "[variables('vipColumns')]"
+        }
+      },
+      "dependsOn": [
+        "workspace"
+      ]
+    },
+    "importAuditTable": {
+      "type": "Microsoft.OperationalInsights/workspaces/tables",
+      "apiVersion": "2022-10-01",
+      "name": "[format('{0}/{1}', variables('workspaceName'), 'SOCRadar_ImportAudit_CL')]",
+      "properties": {
+        "schema": {
+          "name": "SOCRadar_ImportAudit_CL",
+          "columns": "[variables('importAuditColumns')]"
+        }
+      },
+      "dependsOn": [
+        "workspace"
+      ]
+    },
     "dcr": {
       "type": "Microsoft.Insights/dataCollectionRules",
       "apiVersion": "2023-03-11",
@@ -467,10 +800,22 @@
       "location": "[variables('location')]",
       "kind": "Direct",
       "properties": {
-        "description": "Entra ID Elite — former sync audit (Logs Ingestion API)",
+        "description": "Entra ID Elite — former sync audit and leak monitoring (Logs Ingestion API)",
         "streamDeclarations": {
           "Custom-SOCRadar_EntraID_Audit_CL": {
             "columns": "[variables('auditColumns')]"
+          },
+          "Custom-SOCRadar_Botnet_CL": {
+            "columns": "[variables('botnetColumns')]"
+          },
+          "Custom-SOCRadar_PII_CL": {
+            "columns": "[variables('piiColumns')]"
+          },
+          "Custom-SOCRadar_VIP_CL": {
+            "columns": "[variables('vipColumns')]"
+          },
+          "Custom-SOCRadar_ImportAudit_CL": {
+            "columns": "[variables('importAuditColumns')]"
           }
         },
         "destinations": {
@@ -491,11 +836,55 @@
             ],
             "transformKql": "source",
             "outputStream": "Custom-SOCRadar_EntraID_Audit_CL"
+          },
+          {
+            "streams": [
+              "Custom-SOCRadar_Botnet_CL"
+            ],
+            "destinations": [
+              "law"
+            ],
+            "transformKql": "source",
+            "outputStream": "Custom-SOCRadar_Botnet_CL"
+          },
+          {
+            "streams": [
+              "Custom-SOCRadar_PII_CL"
+            ],
+            "destinations": [
+              "law"
+            ],
+            "transformKql": "source",
+            "outputStream": "Custom-SOCRadar_PII_CL"
+          },
+          {
+            "streams": [
+              "Custom-SOCRadar_VIP_CL"
+            ],
+            "destinations": [
+              "law"
+            ],
+            "transformKql": "source",
+            "outputStream": "Custom-SOCRadar_VIP_CL"
+          },
+          {
+            "streams": [
+              "Custom-SOCRadar_ImportAudit_CL"
+            ],
+            "destinations": [
+              "law"
+            ],
+            "transformKql": "source",
+            "outputStream": "Custom-SOCRadar_ImportAudit_CL"
           }
         ]
       },
       "dependsOn": [
         "auditTable",
+        "botnetTable",
+        "importAuditTable",
+        "piiTable",
+        "vipTable",
         "workspace"
       ]
     },
@@ -551,8 +940,12 @@
       "kind": "web",
       "properties": {
         "Application_Type": "web",
-        "Request_Source": "rest"
-      }
+        "Request_Source": "rest",
+        "WorkspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('workspaceName'))]"
+      },
+      "dependsOn": [
+        "workspace"
+      ]
     },
     "functionApp": {
       "type": "Microsoft.Web/sites",
@@ -634,7 +1027,11 @@
             },
             {
               "name": "ENABLE_CROSS_TENANT_SUPPRESS",
-              "value": "true"
+              "value": "[string(parameters('EnableCrossTenantSuppress'))]"
+            },
+            {
+              "name": "GROUP_TENANT_IDS",
+              "value": "[parameters('GroupTenantIds')]"
             },
             {
               "name": "INCLUDE_DELETED_USERS",
@@ -666,27 +1063,99 @@
             },
             {
               "name": "POLLING_SCHEDULE",
-              "value": "0 0 3 * * *"
+              "value": "[format('0 30 */{0} * * *', parameters('LeakImportIntervalHours'))]"
             },
             {
               "name": "ENABLE_BOTNET_SOURCE",
-              "value": "false"
+              "value": "[string(and(parameters('EnableLeakMonitoring'), contains(parameters('LeakSources'), 'botnet')))]"
             },
             {
               "name": "ENABLE_PII_SOURCE",
-              "value": "false"
+              "value": "[string(and(parameters('EnableLeakMonitoring'), contains(parameters('LeakSources'), 'pii')))]"
             },
             {
               "name": "ENABLE_VIP_SOURCE",
-              "value": "false"
+              "value": "[string(and(parameters('EnableLeakMonitoring'), contains(parameters('LeakSources'), 'vip')))]"
             },
             {
               "name": "ENABLE_USER_LOOKUP",
+              "value": "[string(parameters('EnableLeakMonitoring'))]"
+            },
+            {
+              "name": "ENTRA_ACTION_MODE",
+              "value": "[if(variables('respondOn'), 'apply', 'plan')]"
+            },
+            {
+              "name": "ENTRA_MAX_ACTIONS_PER_RUN",
+              "value": "[string(parameters('LeakMaxActionsPerRun'))]"
+            },
+            {
+              "name": "LEAK_LEDGER_RETENTION_DAYS",
+              "value": "[string(parameters('LeakLedgerRetentionDays'))]"
+            },
+            {
+              "name": "MAX_PAGES_PER_RUN",
+              "value": "10"
+            },
+            {
+              "name": "INITIAL_LOOKBACK_MINUTES",
+              "value": "[string(mul(parameters('LeakInitialLookbackDays'), 1440))]"
+            },
+            {
+              "name": "ENABLE_REVOKE_SESSION",
+              "value": "[string(and(variables('respondOn'), contains(parameters('LeakResponseActions'), 'revokeSessions')))]"
+            },
+            {
+              "name": "ENABLE_PASSWORD_CHANGE",
+              "value": "[string(and(variables('respondOn'), contains(parameters('LeakResponseActions'), 'forcePasswordChange')))]"
+            },
+            {
+              "name": "ENABLE_DISABLE_ACCOUNT",
+              "value": "[string(and(variables('respondOn'), contains(parameters('LeakResponseActions'), 'disableAccount')))]"
+            },
+            {
+              "name": "ENABLE_FORCE_MFA_REREGISTRATION",
+              "value": "[string(and(variables('respondOn'), contains(parameters('LeakResponseActions'), 'resetMfa')))]"
+            },
+            {
+              "name": "ENABLE_CONFIRM_RISKY",
+              "value": "[string(and(variables('respondOn'), contains(parameters('LeakResponseActions'), 'confirmCompromised')))]"
+            },
+            {
+              "name": "ENABLE_ADD_TO_GROUP",
+              "value": "[string(and(variables('respondOn'), not(empty(parameters('SecurityGroupId')))))]"
+            },
+            {
+              "name": "ENABLE_REMOVE_FROM_GROUP",
               "value": "false"
             },
             {
-              "name": "RUN_ON_STARTUP",
+              "name": "ENABLE_ENABLE_ACCOUNT",
               "value": "false"
+            },
+            {
+              "name": "ENABLE_ROPC",
+              "value": "false"
+            },
+            {
+              "name": "ENABLE_CREATE_INCIDENT",
+              "value": "false"
+            },
+            {
+              "name": "ENABLE_RESOLVE_ALARM",
+              "value": "false"
+            },
+            {
+              "name": "SECURITY_GROUP_ID",
+              "value": "[parameters('SecurityGroupId')]"
+            },
+            {
+              "name": "ENTRA_ID_VERIFIED_DOMAINS",
+              "value": "[parameters('VerifiedDomains')]"
+            },
+            {
+              "name": "RUN_ON_STARTUP",
+              "value": "[string(parameters('RunOnStartup'))]"
             },
             {
               "name": "SOCRADAR_API_KEY",
@@ -747,7 +1216,7 @@
         "azCliVersion": "2.50.0",
         "retentionInterval": "PT1H",
         "timeout": "PT15M",
-        "scriptContent": "sleep 30 && az functionapp restart --name $FA_NAME --resource-group $RG_NAME && echo restarted",
+        "scriptContent": "set -euo pipefail; sleep 30 && az functionapp restart --name \"$FA_NAME\" --resource-group \"$RG_NAME\" && echo restarted",
         "environmentVariables": [
           {
             "name": "FA_NAME",
@@ -766,6 +1235,7 @@
       ]
     },
     "faContributorRole": {
+      "condition": "[and(not(empty(parameters('PackageUri'))), parameters('RunOnStartup'))]",
       "type": "Microsoft.Authorization/roleAssignments",
       "apiVersion": "2022-04-01",
       "scope": "[resourceId('Microsoft.Web/sites', variables('functionAppName'))]",
@@ -800,11 +1270,15 @@
     },
     "consentNote": {
       "type": "string",
-      "value": "[if(and(parameters('CreateAppRegistration'), not(parameters('GrantAdminConsent'))), 'Grant admin consent to the new App Registration (Entra portal > App registrations > Entra ID Elite > API permissions), and consent it in every sibling tenant.', 'Consent handled (existing app or automated grant). Sibling tenants still need the multi-tenant app consented once each.')]"
+      "value": "[if(parameters('CreateAppRegistration'), if(parameters('GrantAdminConsent'), 'Consent granted by the deployment. Each sibling tenant still needs the multi-tenant app consented once.', 'Grant admin consent to the new App Registration (Entra portal > App registrations > Entra ID Elite > API permissions), and consent it in every sibling tenant.'), 'Not checked here: the deployment cannot read the permissions of an App Registration it does not own. Confirm the reused app still has its Graph permissions granted, and that each sibling tenant has consented to the multi-tenant app once.')]"
     },
     "ficNote": {
       "type": "string",
-      "value": "[if(parameters('CreateAppRegistration'), 'FIC created automatically.', if(parameters('SkipFicCreation'), 'FIC skipped — add it manually for the UAMI principal.', 'FIC added to the existing App Registration by deployment script.'))]"
+      "value": "[if(parameters('CreateAppRegistration'), 'FIC created automatically.', if(parameters('SkipFicCreation'), 'FIC skipped — add it manually for the UAMI principal.', if(reference('addFicToExistingApp').outputs.ficAdded, 'FIC is in place on the existing App Registration.', 'CHECK THIS — the deployment could not add the federated credential, and without Entra read permission it also cannot tell whether a suitable one already exists. Confirm with GET /api/former/preview: if snapshot_complete is false the credential is missing, and an owner of the App Registration must run the command in ficManualCommand. Do not use leak/preview for this: it reports no reachable tenant whenever leak monitoring is off, which is the default. Until then no user is looked up or acted on.')))]"
+    },
+    "ficManualCommand": {
+      "type": "string",
+      "value": "[if(or(parameters('CreateAppRegistration'), parameters('SkipFicCreation')), '', if(reference('addFicToExistingApp').outputs.ficAdded, '', format('az ad app federated-credential create --id {0} --parameters ''{{\"name\":\"former-elite-{1}-uami\",\"issuer\":\"https://login.microsoftonline.com/{2}/v2.0\",\"subject\":\"{3}\",\"audiences\":[\"api://AzureADTokenExchange\"]}}''', parameters('EntraIdClientId'), resourceGroup().name, subscription().tenantId, reference('managedIdentity').principalId)))]"
     }
   }
 }

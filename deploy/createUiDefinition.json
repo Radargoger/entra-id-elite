@@ -9,7 +9,7 @@
         "type": "Microsoft.Common.TextBlock",
         "visible": true,
         "options": {
-          "text": "This solution suppresses false-positive leak alarms for former employees. One deployment manages every company in your corporate group: each company's group tenants are derived automatically from the other rows. The deployment ships in plan-only mode — nothing is written until you enable apply. This template deploys the infrastructure; the function code package is published in a follow-up step (see the README)."
+          "text": "This solution suppresses false-positive leak alarms for former employees. One deployment manages every company in your corporate group: each company's group tenants are derived automatically from the other rows. Former-employee sync starts working on the first run: it writes to your SOCRadar former-employee list, and to nothing else. Clear the apply box on the next page if you would rather watch it first. Leak monitoring — the part that can act on accounts — stays off until you turn it on."
         }
       }
     ],
@@ -26,8 +26,14 @@
             "toolTip": "Platform is the production environment. Preprod is the staging platform for trials.",
             "constraints": {
               "allowedValues": [
-                { "label": "Platform (production)", "value": "platform" },
-                { "label": "Preprod (staging)", "value": "preprod" }
+                {
+                  "label": "Platform (production)",
+                  "value": "platform"
+                },
+                {
+                  "label": "Preprod (staging)",
+                  "value": "preprod"
+                }
               ],
               "required": true
             }
@@ -47,7 +53,12 @@
             "label": "Companies",
             "constraints": {
               "width": "Full",
-              "rows": { "count": { "min": 1, "max": 20 } },
+              "rows": {
+                "count": {
+                  "min": 1,
+                  "max": 20
+                }
+              },
               "columns": [
                 {
                   "id": "companyId",
@@ -84,7 +95,9 @@
                   "element": {
                     "type": "Microsoft.Common.TextBox",
                     "placeholder": "(empty = plan-only)",
-                    "constraints": { "required": false }
+                    "constraints": {
+                      "required": false
+                    }
                   }
                 },
                 {
@@ -102,6 +115,18 @@
                   }
                 }
               ]
+            }
+          },
+          {
+            "name": "extraGroupTenants",
+            "type": "Microsoft.Common.TextBox",
+            "label": "Other group tenants (optional)",
+            "placeholder": "00000000-0000-0000-0000-000000000000, ...",
+            "toolTip": "Tenants that belong to the group but have no company of their own on the platform, such as a holding tenant. Their active members are added to every company's former list; they never receive a list themselves. The app must be consented in each of them — without that the snapshot counts as incomplete and EVERYTHING stops for the affected company, additions included, so nobody gets suppressed until the consent is in place.",
+            "constraints": {
+              "required": false,
+              "regex": "^$|^\\s*[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(\\s*,\\s*[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})*\\s*$",
+              "validationMessage": "Tenant GUIDs, comma-separated, or leave empty."
             }
           },
           {
@@ -123,11 +148,17 @@
             "type": "Microsoft.Common.OptionsGroup",
             "label": "App Registration",
             "defaultValue": "Create new automatically",
-            "toolTip": "The engine reads Entra users through a multi-tenant App Registration with User.Read.All + Directory.Read.All. Creating a new one needs the Application Administrator role; without it choose the existing-app option.",
+            "toolTip": "The engine reads Entra users through a multi-tenant App Registration with User.Read.All. Creating a new one needs the Application Administrator role; without it choose the existing-app option.",
             "constraints": {
               "allowedValues": [
-                { "label": "Create new automatically", "value": "create" },
-                { "label": "Use an existing App Registration", "value": "existing" }
+                {
+                  "label": "Create new automatically",
+                  "value": "create"
+                },
+                {
+                  "label": "Use an existing App Registration",
+                  "value": "existing"
+                }
               ],
               "required": true
             }
@@ -176,11 +207,17 @@
             "type": "Microsoft.Common.DropDown",
             "label": "Client mode",
             "defaultValue": "Real (live API)",
-            "toolTip": "Real: works against the live platform (normal use). Mock: a self-contained trial — nothing leaves Azure, data is kept in the app's own storage.",
+            "toolTip": "Applies to the former-employee list only. Real reads and writes that list on the live platform; Mock keeps it in the app's own storage so nothing is written to the platform. Leaked-credential monitoring is not affected either way: with it turned on, the feeds are always pulled live and matches are always looked up in Entra ID. To hold that half back, use Log only on the next step.",
             "constraints": {
               "allowedValues": [
-                { "label": "Real (live API)", "value": "real" },
-                { "label": "Mock (local trial, no live API calls)", "value": "mock" }
+                {
+                  "label": "Real (live API)",
+                  "value": "real"
+                },
+                {
+                  "label": "Mock (local trial, no live API calls)",
+                  "value": "mock"
+                }
               ],
               "required": true
             }
@@ -193,13 +230,46 @@
             "toolTip": "How often the former sync reconciles each company.",
             "constraints": {
               "allowedValues": [
-                { "label": "Every 5 minutes", "value": "5" },
-                { "label": "Every 15 minutes", "value": "15" },
-                { "label": "Every 30 minutes", "value": "30" },
-                { "label": "Every hour", "value": "60" },
-                { "label": "Every 6 hours", "value": "360" },
-                { "label": "Every 12 hours", "value": "720" },
-                { "label": "Daily", "value": "1440" }
+                {
+                  "label": "Every 5 minutes",
+                  "value": "5"
+                },
+                {
+                  "label": "Every 10 minutes",
+                  "value": "10"
+                },
+                {
+                  "label": "Every 15 minutes",
+                  "value": "15"
+                },
+                {
+                  "label": "Every 30 minutes",
+                  "value": "30"
+                },
+                {
+                  "label": "Every hour",
+                  "value": "60"
+                },
+                {
+                  "label": "Every 2 hours",
+                  "value": "120"
+                },
+                {
+                  "label": "Every 4 hours",
+                  "value": "240"
+                },
+                {
+                  "label": "Every 6 hours",
+                  "value": "360"
+                },
+                {
+                  "label": "Every 12 hours",
+                  "value": "720"
+                },
+                {
+                  "label": "Daily",
+                  "value": "1440"
+                }
               ],
               "required": true
             }
@@ -212,12 +282,241 @@
             "defaultValue": true
           }
         ]
+      },
+      {
+        "name": "leak",
+        "label": "Leaked credentials",
+        "elements": [
+          {
+            "name": "enableLeak",
+            "type": "Microsoft.Common.CheckBox",
+            "label": "Also monitor leaked credentials",
+            "toolTip": "Pulls leaked credential findings for each company in your grid and matches them against that company's own directory. Each company is only ever searched in its own tenants.",
+            "defaultValue": false
+          },
+          {
+            "name": "sources",
+            "type": "Microsoft.Common.DropDown",
+            "label": "Sources",
+            "multiselect": true,
+            "defaultValue": [
+              "Botnet data",
+              "PII exposure"
+            ],
+            "toolTip": "Which leak feeds to pull.",
+            "constraints": {
+              "allowedValues": [
+                {
+                  "label": "Botnet data",
+                  "value": "botnet"
+                },
+                {
+                  "label": "PII exposure",
+                  "value": "pii"
+                },
+                {
+                  "label": "VIP protection",
+                  "value": "vip"
+                }
+              ],
+              "required": true
+            },
+            "visible": "[steps('leak').enableLeak]"
+          },
+          {
+            "name": "response",
+            "type": "Microsoft.Common.OptionsGroup",
+            "label": "On a match",
+            "defaultValue": "Log only",
+            "toolTip": "Log only writes the match to Log Analytics and leaves the account alone. Respond also changes the account in Entra ID.",
+            "constraints": {
+              "allowedValues": [
+                {
+                  "label": "Log only",
+                  "value": "logOnly"
+                },
+                {
+                  "label": "Respond",
+                  "value": "respond"
+                }
+              ],
+              "required": true
+            },
+            "visible": "[steps('leak').enableLeak]"
+          },
+          {
+            "name": "actions",
+            "type": "Microsoft.Common.DropDown",
+            "label": "Response actions",
+            "multiselect": true,
+            "defaultValue": [
+              "Sign the user out everywhere"
+            ],
+            "toolTip": "Only these are requested as write permissions. Anything left unselected is never asked for and never runs.",
+            "constraints": {
+              "allowedValues": [
+                {
+                  "label": "Sign the user out everywhere",
+                  "value": "revokeSessions"
+                },
+                {
+                  "label": "Require a password change",
+                  "value": "forcePasswordChange"
+                },
+                {
+                  "label": "Disable the account",
+                  "value": "disableAccount"
+                },
+                {
+                  "label": "Reset MFA registration",
+                  "value": "resetMfa"
+                },
+                {
+                  "label": "Mark as compromised in Identity Protection",
+                  "value": "confirmCompromised"
+                }
+              ],
+              "required": true
+            },
+            "visible": "[and(steps('leak').enableLeak, equals(steps('leak').response, 'respond'))]"
+          },
+          {
+            "name": "maxActions",
+            "type": "Microsoft.Common.DropDown",
+            "label": "Account changes per run",
+            "defaultValue": "Up to 50",
+            "toolTip": "A ceiling per company per source in each run — with three companies and two sources a single run can change up to six times this number. Once a slot reaches it, matches keep being recorded and the remaining actions get their turn on the next run.",
+            "constraints": {
+              "allowedValues": [
+                {
+                  "label": "Up to 10",
+                  "value": "10"
+                },
+                {
+                  "label": "Up to 50",
+                  "value": "50"
+                },
+                {
+                  "label": "Up to 200",
+                  "value": "200"
+                },
+                {
+                  "label": "Up to 1000",
+                  "value": "1000"
+                }
+              ],
+              "required": true
+            },
+            "visible": "[and(steps('leak').enableLeak, equals(steps('leak').response, 'respond'))]"
+          },
+          {
+            "name": "verifiedDomains",
+            "type": "Microsoft.Common.TextBox",
+            "label": "Your own email domains (optional)",
+            "placeholder": "corp.com, subsidiary.co.uk",
+            "toolTip": "Comma-separated. When set, only addresses in these domains are looked up in Entra ID and every other address a feed returns is dropped inside the app, before it reaches Microsoft. Leave empty to look up everything the feed returns.",
+            "constraints": {
+              "required": false,
+              "regex": "^$|^\\s*[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+(\\s*,\\s*[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+)*\\s*$",
+              "validationMessage": "Domain names, comma-separated, or leave empty."
+            },
+            "visible": "[steps('leak').enableLeak]"
+          },
+          {
+            "name": "securityGroup",
+            "type": "Microsoft.Common.TextBox",
+            "label": "Security group object ID (optional)",
+            "toolTip": "Matched users are added to this group. Leave empty to skip it.",
+            "defaultValue": "",
+            "constraints": {
+              "required": false,
+              "regex": "^$|^[0-9a-fA-F-]{36}$",
+              "validationMessage": "Enter a group object ID (GUID) or leave empty."
+            },
+            "visible": "[and(steps('leak').enableLeak, equals(steps('leak').response, 'respond'))]"
+          },
+          {
+            "name": "leakInterval",
+            "type": "Microsoft.Common.DropDown",
+            "label": "Check for new leaks",
+            "defaultValue": "Every 6 hours",
+            "toolTip": "How often the leak feeds are pulled.",
+            "constraints": {
+              "allowedValues": [
+                {
+                  "label": "Every hour",
+                  "value": "1"
+                },
+                {
+                  "label": "Every 3 hours",
+                  "value": "3"
+                },
+                {
+                  "label": "Every 6 hours",
+                  "value": "6"
+                },
+                {
+                  "label": "Every 12 hours",
+                  "value": "12"
+                },
+                {
+                  "label": "Daily",
+                  "value": "24"
+                }
+              ],
+              "required": true
+            },
+            "visible": "[steps('leak').enableLeak]"
+          },
+          {
+            "name": "initialLookback",
+            "type": "Microsoft.Common.DropDown",
+            "label": "How far back to look on the first run",
+            "defaultValue": "30 days",
+            "toolTip": "On the very first run (before a checkpoint exists) the engine scans this many days of history. Larger values catch older breaches but make the first run slower.",
+            "constraints": {
+              "allowedValues": [
+                {
+                  "label": "7 days",
+                  "value": "7"
+                },
+                {
+                  "label": "30 days",
+                  "value": "30"
+                },
+                {
+                  "label": "90 days",
+                  "value": "90"
+                },
+                {
+                  "label": "180 days",
+                  "value": "180"
+                },
+                {
+                  "label": "365 days",
+                  "value": "365"
+                }
+              ],
+              "required": true
+            },
+            "visible": "[steps('leak').enableLeak]"
+          },
+          {
+            "name": "leakNote",
+            "type": "Microsoft.Common.TextBlock",
+            "visible": "[and(steps('leak').enableLeak, equals(steps('leak').response, 'respond'))]",
+            "options": {
+              "text": "One of these cannot be undone: resetting MFA registration wipes the person's registered methods and they have to enrol again. A reset wipes the registered methods and the person has to enrol again. Disabling an account can be reversed, and a compromise mark can be dismissed in Identity Protection. Responding also needs write permission in every tenant you listed, so each tenant's admin consents once. Start with Log only if you want to see the matches first."
+            }
+          }
+        ]
       }
     ],
     "outputs": {
       "FormerCompanies": {
         "rows": "[steps('socradar').companies]"
       },
+      "GroupTenantIds": "[steps('socradar').extraGroupTenants]",
       "Environment": "[steps('socradar').environment]",
       "EntraIdClientId": "[if(equals(steps('entra').appRegChoice, 'existing'), steps('entra').existingClientId, '')]",
       "CreateAppRegistration": "[equals(steps('entra').appRegChoice, 'create')]",
@@ -225,7 +524,16 @@
       "FormerApplyChanges": "[steps('behavior').applyChanges]",
       "FormerClientMode": "[steps('behavior').clientMode]",
       "FormerSyncIntervalMinutes": "[int(steps('behavior').syncInterval)]",
-      "IncludeDeletedUsers": "[steps('behavior').includeDeleted]"
+      "IncludeDeletedUsers": "[steps('behavior').includeDeleted]",
+      "EnableLeakMonitoring": "[steps('leak').enableLeak]",
+      "LeakSources": "[steps('leak').sources]",
+      "LeakResponse": "[steps('leak').response]",
+      "LeakResponseActions": "[steps('leak').actions]",
+      "LeakMaxActionsPerRun": "[int(steps('leak').maxActions)]",
+      "LeakImportIntervalHours": "[int(steps('leak').leakInterval)]",
+      "LeakInitialLookbackDays": "[int(steps('leak').initialLookback)]",
+      "SecurityGroupId": "[steps('leak').securityGroup]",
+      "VerifiedDomains": "[steps('leak').verifiedDomains]"
     }
   }
 }

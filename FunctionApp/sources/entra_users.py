@@ -13,16 +13,28 @@ smtp proxyAddresses and (as fallback) a plausible UPN, lowercased.
 
 import logging
 import re
+import time
 import requests
 
 logger = logging.getLogger("socradar.elite.entra_users")
+
+# Graph throttles per tenant. Without this the whole tenant read fails, the
+# snapshot is marked incomplete and the reconcile blocks — a throttle must not
+# look like missing data.
+_THROTTLE_RETRIES = 3
+_THROTTLE_BACKOFF = 5
 
 # Soft-deleted users get their objectId (32 hex chars, dashes removed) prepended
 # to the userPrincipalName local part, e.g.
 #   c5f5dcecc7234174b1d04bcab9f32e77elite-test-deleted@contoso.onmicrosoft.com
 # That is not a routable address. Strip the prefix so leak matching sees the
 # real UPN (or, when the whole local part IS the objectId, drop it entirely).
-_DELETED_UPN_PREFIX = re.compile(r"^[0-9a-f]{32}(?=[^@])", re.IGNORECASE)
+#
+# The lookahead this once carried ((?=[^@])) required something after the hex,
+# so the one case the comment singles out — a local part that is nothing but the
+# objectId — matched nothing, kept its prefix and was published as an address.
+# Nobody owns it, so reconcile could never retire it either.
+_DELETED_UPN_PREFIX = re.compile(r"^[0-9a-f]{32}", re.IGNORECASE)
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
@@ -44,11 +56,18 @@ def _get_paged(url: str, graph_headers: dict, advanced: bool = False, timeout: i
     items = []
     next_url = url
     while next_url:
-        # Backlog P0 (snapshot completeness): a poisoned @odata.nextLink must
+        # Snapshot completeness: a poisoned @odata.nextLink must
         # never send our bearer token to a foreign host.
         if not next_url.startswith(GRAPH_BASE.split("/v1.0")[0] + "/"):
             raise RuntimeError(f"Graph nextLink left graph.microsoft.com: {next_url[:80]}")
-        resp = requests.get(next_url, headers=headers, timeout=timeout)
+        for attempt in range(_THROTTLE_RETRIES + 1):
+            resp = requests.get(next_url, headers=headers, timeout=timeout)
+            if resp.status_code not in (429, 503) or attempt == _THROTTLE_RETRIES:
+                break
+            delay = int(resp.headers.get("Retry-After") or _THROTTLE_BACKOFF * (attempt + 1))
+            logger.warning("[ENTRA_USERS] HTTP %d, waiting %ds (attempt %d/%d)",
+                           resp.status_code, delay, attempt + 1, _THROTTLE_RETRIES)
+            time.sleep(min(delay, 60))
         if resp.status_code != 200:
             raise RuntimeError(f"Graph GET {next_url.split('?')[0]} -> HTTP {resp.status_code}: {resp.text[:200]}")
         payload = resp.json()

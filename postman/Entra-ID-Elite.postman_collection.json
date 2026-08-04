@@ -59,6 +59,42 @@
             },
             "description": "Removes the manual entry. If policy still wants the person former (e.g. their account is disabled), the next sync re-adds them."
           }
+        },
+        {
+          "name": "Leak preview — which tenants can be searched",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "https://{{functionAppHost}}/api/leak/preview?code={{functionKey}}&company_id={{companyId}}",
+              "protocol": "https",
+              "host": ["{{functionAppHost}}"],
+              "path": ["api", "leak", "preview"],
+              "query": [
+                { "key": "code", "value": "{{functionKey}}" },
+                { "key": "company_id", "value": "{{companyId}}" }
+              ]
+            },
+            "description": "Read-only. Per company: which of its own tenants a Graph token could be obtained for, and which responses are armed. An empty 'tenants_reachable' means the app cannot look anybody up — usually a missing federated credential. Reports nothing while leak monitoring is switched off."
+          }
+        },
+        {
+          "name": "Leak probe — what would happen to one address",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{testEmail}}\",\n  \"company_id\": \"{{companyId}}\",\n  \"apply\": false\n}"
+            },
+            "url": {
+              "raw": "https://{{functionAppHost}}/api/leak/probe?code={{functionKey}}",
+              "protocol": "https",
+              "host": ["{{functionAppHost}}"],
+              "path": ["api", "leak", "probe"],
+              "query": [{ "key": "code", "value": "{{functionKey}}" }]
+            },
+            "description": "Searches only that company's own tenants and reports where the address was found and which responses would run. Acting on it needs all three of: the deployment in apply mode, \"apply\": true here, and the response itself enabled — 'apply_reason' names whichever is missing. Left false here on purpose."
+          }
         }
       ]
     },

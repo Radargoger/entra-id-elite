@@ -1,12 +1,19 @@
 # State restore runbook
 
-State lives in four tables: `EntraIDState` (checkpoint + guard baseline),
-`FormerManual`, `FormerOwnership` (ledger), `FormerLock`.
+State lives in five tables: `EntraIDState` (checkpoint + guard baseline),
+`FormerManual`, `FormerOwnership` (ledger), `LeakActionLedger`, and
+`FormerLock` (a short-lived lease the app recreates — never restore it, a
+stale copy is worse than none).
 
-The engine is designed so that LOSING state is safe: an empty ownership
-ledger is a bootstrap run — removals are forced to zero, external records
-are never touched, and adds re-confirm through readback. That gives two
-restore strategies; prefer the first.
+Losing most of that is safe: an empty ownership ledger is a bootstrap run —
+removals are forced to zero, external records are never touched, and adds
+re-confirm through readback.
+
+`LeakActionLedger` is the exception, and only in apply mode. It is how a
+run tells a repeat action from a first-time one. Delete it while apply is
+on and the next run over the same window can act a second time on the same
+person — including the actions nobody can undo. Restore it, or turn apply
+off until the window it covered has passed.
 
 ## Strategy 1 — safe reset (default)
 
@@ -19,10 +26,13 @@ az storage table delete --account-name <sa> --name FormerLock --auth-mode login
 # EntraIDState / FormerManual: delete only if suspected corrupt.
 ```
 
-Effects, all fail-safe:
+Effects:
 - ownership empty -> bootstrap -> **no removals** until adds re-confirm;
 - guard baseline empty -> re-adopts current tenant counts on the next run;
 - manual entries lost -> re-add via `POST /api/former/manual`.
+- `LeakActionLedger` deleted -> **not fail-safe while apply is on**: the
+  next run over an unexpired window has no record of what it already did.
+  Turn apply off first, or leave this table alone.
 
 Run one plan-only cycle (`FORMER_APPLY_CHANGES=false`) and check
 `GET /api/former/preview` before re-enabling apply.

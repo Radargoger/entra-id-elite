@@ -1,5 +1,5 @@
 """
-P0 safety tests for the ownership-aware reconcile planner and ledger.
+Safety tests for the ownership-aware reconcile planner and ledger.
 
 These cover the mandatory backlog test list items that are pure/offline:
   - external remote records are preserved (never removal candidates)

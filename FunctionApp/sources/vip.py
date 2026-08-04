@@ -9,133 +9,85 @@ import logging
 import requests
 from datetime import datetime, timezone
 
-from utils.logger import get_logger
-from utils.checkpoint import get_start_date
-
-logger = get_logger("vip")
+from sources.base_fetcher import BaseFetcher
 
 ENDPOINT = "/api/company/{company_id}/vip-protection/v2"
 PAGE_SIZE = 100
-MAX_PAGES_PER_RUN = int(os.environ.get("MAX_PAGES_PER_RUN", "50"))
 
 
-def fetch(conf: dict, checkpoint: dict) -> list:
+class VipFetcher(BaseFetcher):
+    """VIP-specific record mapping (no passwords, no employee filter)."""
+
+    def __init__(self):
+        super().__init__(source_name="vip", endpoint_template=ENDPOINT,
+                         page_size=PAGE_SIZE)
+
+    def _validate_response(self, resp, page: int) -> bool:
+        if resp.status_code == 404:
+            self.logger.error(
+                "VIP endpoint returned 404 -- endpoint may not exist for this company"
+            )
+            return False
+        return super()._validate_response(resp, page)
+
+    @staticmethod
+    def _address(rec: dict) -> str:
+        """Pick the field that actually carries an address, or return nothing.
+
+        vipName is a display name, not an address, and a VIP record need not
+        carry an address field at all. Reading vipName as the address sent
+        "Firstname Lastname" to Graph, which answers 404 the same way it answers
+        for an address nobody has heard of — so the run recorded clean misses it
+        could never have avoided. The okta and Google connectors already choose
+        the first candidate that holds an address; this is that rule, brought
+        over.
+
+        When no field holds one, say so by returning "" rather than falling
+        back to the display name. There is nothing to look up, and asking Graph
+        about a person's name only manufactures a miss that looks like an answer.
+
+        Do not widen this to `history`. Addresses do appear there, but they sit
+        in the `operator` field, which names the analyst who handled the record,
+        not the person the record is about. Treating them as the subject's
+        address would point the lookup, and any armed response, at the wrong
+        human being.
+        """
+        for candidate in (rec.get("vipName"), rec.get("email"), rec.get("keyword")):
+            addr = str(candidate).strip() if candidate else ""
+            # Containing an '@' is not the same as being an address. `keyword`
+            # is free text and holds things like "creds for a@b.com on sale":
+            # sending that to Graph asks about a person who does not exist and
+            # files the answer as a clean miss. Take it only when the whole
+            # value is one address.
+            if addr.count("@") == 1 and not any(c.isspace() for c in addr):
+                local, _, domain = addr.partition("@")
+                if local and "." in domain:
+                    return addr
+        return ""
+
+    def _map_record(self, rec: dict, conf: dict) -> dict | None:
+        related = rec.get("relatedAlarm", {}) or {}
+        return {
+            "email":          self._address(rec),
+            "keyword":        rec.get("keyword", ""),
+            "vip_name":       rec.get("vipName", ""),
+            "status":         rec.get("status", ""),
+            "discovery_date": rec.get("discoveryDate", ""),
+            "source_name":    rec.get("source", ""),
+            "is_employee":    True,
+            "source":         "vip",
+            "alarm_id":       rec.get("alarmId") or related.get("alarmId"),
+            # No password field in VIP responses
+            "password_present": False,
+            "password_masked":  None,
+            "is_plaintext":     False,
+        }
+
+
+def fetch(conf: dict, checkpoint: dict, deadline: float = None,
+          max_records: int = None) -> list:
     """
     Fetch VIP Protection v2 records.
     Respects MAX_PAGES_PER_RUN to avoid function timeout.
     """
-    api_key = conf["socradar_api_key"]
-    company_id = conf["socradar_company_id"]
-    initial_lookback = conf.get("initial_lookback_minutes", 600)
-    initial_start_date = conf.get("initial_start_date", "")
-
-    base = conf.get("socradar_base_url", "https://platform.socradar.com")
-    url = base + ENDPOINT.format(company_id=company_id)
-    headers = {
-        "API-Key": api_key,
-        "Content-Type": "application/json",
-        "User-Agent": "SOCRadar-EntraID/1.0",
-    }
-
-    start_date = get_start_date(checkpoint, initial_lookback, initial_start_date)
-    resume_page = checkpoint.get("last_page", 0)
-    logger.info("[VIP] Starting fetch. start_date=%s, page=%d", start_date, resume_page + 1)
-
-    all_records = []
-    page = resume_page + 1 if resume_page else 1
-    # Init total_pages so the first loop iteration always runs (real value
-    # comes from the first API response). Using 1 here breaks resume: if
-    # resume_page=100 then page=101 and `page <= total_pages` is False, the
-    # loop never executes, and `finished_all` becomes True erroneously —
-    # checkpoint advances to today and the remaining backlog is lost.
-    total_pages = page
-    total_data_count = None
-    pages_this_run = 0
-
-    while page <= total_pages and pages_this_run < MAX_PAGES_PER_RUN:
-        params = {
-            "page": page,
-            "limit": PAGE_SIZE,
-            "startDate": start_date,
-        }
-
-        try:
-            resp = requests.get(url, headers=headers, params=params, timeout=30)
-        except requests.RequestException as e:
-            logger.error(f"Request failed on page {page}: {e}")
-            break
-
-        if resp.status_code == 404:
-            logger.error("VIP endpoint returned 404 — endpoint may not exist for this company")
-            break
-
-        if resp.status_code != 200:
-            logger.error(f"API error {resp.status_code} on page {page}: {resp.text[:200]}")
-            break
-
-        data = resp.json()
-        if not data.get("is_success"):
-            logger.error(f"API returned is_success=false: {data.get('message', 'unknown')}")
-            break
-
-        payload = data.get("data", {})
-        records_raw = payload.get("data", [])
-
-        if total_data_count is None:
-            total_data_count = payload.get("total_data_count", 0)
-            total_pages = max(1, -(-total_data_count // PAGE_SIZE))
-            logger.info(f"Total records={total_data_count}, pages={total_pages}")
-
-        for rec in records_raw:
-            related = rec.get("relatedAlarm", {}) or {}
-            entry = {
-                "email":          rec.get("vipName", rec.get("email", "")),
-                "keyword":        rec.get("keyword", ""),
-                "vip_name":       rec.get("vipName", ""),
-                "status":         rec.get("status", ""),
-                "discovery_date": rec.get("discoveryDate", ""),
-                "source_name":    rec.get("source", ""),
-                "is_employee":    True,
-                "source":         "vip",
-                "alarm_id":       rec.get("alarmId") or related.get("alarmId"),
-                # No password field in VIP responses
-                "password_present": False,
-                "password_masked":  None,
-                "is_plaintext":     False,
-            }
-            all_records.append(entry)
-
-        logger.fetch_page(
-            page=page,
-            total_pages=total_pages,
-            records=len(records_raw),
-            employees=len(records_raw)
-        )
-
-        if not records_raw:
-            break
-
-        pages_this_run += 1
-        page += 1
-        time.sleep(1)
-
-    logger.fetch_done(total=total_data_count or 0, employees=len(all_records))
-
-    finished_all = page > total_pages
-    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-    checkpoint_update = {
-        "last_start_date": today_str if finished_all else start_date,
-        "last_page": 0 if finished_all else page - 1,
-    }
-
-    if not finished_all:
-        logger.info("[VIP] Paused at page %d/%d (limit %d/run). Will resume next run.",
-                     page - 1, total_pages, MAX_PAGES_PER_RUN)
-
-    if all_records:
-        all_records[-1]["_checkpoint_update"] = checkpoint_update
-    else:
-        all_records.append({"_checkpoint_update": checkpoint_update, "_empty_marker": True})
-
-    return all_records
+    return VipFetcher().fetch(conf, checkpoint, deadline, max_records)

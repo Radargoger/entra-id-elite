@@ -61,13 +61,13 @@ class ManualFormerStore:
         return added
 
     def remove(self, emails: list) -> int:
+        # Both key schemes on purpose: a row written before the hash change
+        # must stay removable, or the union in the sync re-adds it forever.
+        from actions.socradar_former import _delete_email_row
         removed = 0
         for email in emails:
-            try:
-                self._table.delete_entity(partition_key=self._company, row_key=_email_row_key(email))
+            if _delete_email_row(self._table, self._company, email):
                 removed += 1
-            except ResourceNotFoundError:
-                pass
         return removed
 
 
@@ -116,8 +116,14 @@ def apply_manual(action: str, emails: list, store, client) -> dict:
     else:
         result["stored"] = store.remove(clean)
         result["pushed"] = client.remove(clean)
-        result["note"] = ("removed from manual store and SOCRadar list; if the policy formula "
-                          "still classifies an email as former, the next sync re-adds it")
+        # "Removed from the SOCRadar list" would be a claim this code cannot
+        # verify: the platform's delete route has been seen to answer 404 while
+        # the record still exists, and its list endpoint answers data:null for
+        # every path, so there is no readable confirmation either way.
+        result["note"] = ("removed from manual store; removal pushed to SOCRadar, but this "
+                          "platform cannot confirm deletions — verify in the platform UI. "
+                          "If the policy formula still classifies an email as former, the "
+                          "next sync re-adds it")
 
     logger.info("[FORMER-MANUAL] %s: accepted=%d invalid=%d stored=%d pushed=%d",
                 action, len(clean), len(invalid), result["stored"], result["pushed"])

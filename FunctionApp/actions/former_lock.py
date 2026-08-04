@@ -1,5 +1,5 @@
 """
-Per-company lease lock for the Former Employee sync (backlog P0: single
+Per-company lease lock for the Former Employee sync (single
 writer). The timer reconcile and the manual HTTP endpoint both mutate the same
 SOCRadar list and ownership ledger; without a lock a manual add landing in the
 middle of an apply-mode readback can corrupt the confirmed/owned accounting.
@@ -92,6 +92,28 @@ class TableLeaseLock:
                         self._company, type(e).__name__)
             return False
 
+    def still_held(self) -> bool:
+        """Is the lease we took still ours, and still unexpired?
+
+        The lease has a TTL and nothing renews it. A reconcile that runs past it
+        loses the lease while it is still writing, and a manual operation can
+        take over and write to the same list. Whoever asks this can at least say
+        so afterwards instead of reporting a result that may have interleaved
+        with somebody else's.
+        """
+        if not self._held:
+            return False
+        try:
+            current = self._table.get_entity(partition_key="lock", row_key=self._company)
+        except Exception as e:
+            logger.info("[FORMER-LOCK] company %s lease unreadable (%s)",
+                        self._company, type(e).__name__)
+            return False
+        if current.get("holder") != self._holder:
+            return False
+        expires = str(current.get("expires_at") or "")
+        return bool(expires) and expires > _now().isoformat()
+
     def release(self) -> None:
         if not self._held:
             return
@@ -131,6 +153,11 @@ class InMemoryLeaseLock:
             "expires_at": _now() + timedelta(seconds=self._ttl)}
         self._held = True
         return True
+
+    def still_held(self) -> bool:
+        entry = InMemoryLeaseLock._locks.get(self._company)
+        return bool(self._held and entry and entry["holder"] == self._holder
+                    and entry["expires_at"] > _now())
 
     def release(self) -> None:
         entry = InMemoryLeaseLock._locks.get(self._company)

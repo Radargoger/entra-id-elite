@@ -1,7 +1,11 @@
 """
 Password sanitization utilities.
 All password data must pass through sanitize_password() immediately upon receipt from APIs.
-The original plaintext is NEVER stored — only passed transiently to ROPC if enabled.
+
+This module does not hide the credential. The value reaches Log Analytics exactly
+as the feed delivered it, masked or clear, and the table declares a column for
+it (docs/product-policy.md §2). What it adds is a locally derived
+`password_masked`, so a dashboard has something safe to show.
 """
 
 import re
@@ -22,17 +26,18 @@ def sanitize_password(password) -> dict:
 
     pw = str(password).strip()
 
-    # API may already return masked values like "a****3" or "S****#"
-    is_masked = bool(re.search(r"\*{2,}", pw))
+    # The feed may already return a masked value like "a****3". Deciding that on
+    # "contains two stars" alone treats a real password such as "Yaz**2026!" as
+    # already masked — so require the stars to make up a large part of the value.
+    stars = pw.count("*")
+    is_masked = stars >= 2 and stars >= len(pw) * 0.25
 
-    if is_masked:
-        masked = pw
+    # Never store the value we were given, masked or not: build our own. A feed
+    # that mislabels a plaintext password must not put it in Log Analytics.
+    if len(pw) >= 2:
+        masked = f"{pw[0]}***{pw[-1]}"
     else:
-        # Build a masked version: first char + *** + last char
-        if len(pw) >= 2:
-            masked = f"{pw[0]}***{pw[-1]}"
-        else:
-            masked = "***"
+        masked = "***"
 
     return {
         "present": True,
@@ -42,13 +47,21 @@ def sanitize_password(password) -> dict:
     }
 
 
-def build_law_password_fields(sanitized: dict, enable_log_plaintext: bool) -> dict:
+def build_law_password_fields(sanitized: dict) -> dict:
     """
     Build the password-related fields to write to Log Analytics.
 
+    The credential is stored as the feed delivered it. Whether a password
+    arrives in the clear or already masked is decided in the SOCRadar platform,
+    per company; a customer who does not want cleartext leaving SOCRadar never
+    has it sent here in the first place. Adding a second switch on this side
+    only meant the record could disagree with the source it came from.
+
+    `password_masked` is still derived locally so a dashboard has something safe
+    to show without reading the credential itself.
+
     Args:
-        sanitized           : output of sanitize_password()
-        enable_log_plaintext: if True, include the raw value (customer's choice)
+        sanitized: output of sanitize_password()
 
     Returns dict to merge into the LAW record.
     """
@@ -57,6 +70,6 @@ def build_law_password_fields(sanitized: dict, enable_log_plaintext: bool) -> di
         "password_masked":  sanitized.get("masked"),
         "is_plaintext":     sanitized.get("is_plaintext", False),
     }
-    if enable_log_plaintext and sanitized.get("_raw"):
+    if sanitized.get("_raw"):
         fields["password"] = sanitized["_raw"]
     return fields
