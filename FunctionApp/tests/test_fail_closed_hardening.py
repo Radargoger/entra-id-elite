@@ -1,4 +1,4 @@
-"""The hardening round driven by the external audit (AUDIT-CODEX-2026-08-01).
+"""The hardening round driven by an external security review (2026-08-01).
 
 One rule underneath all of these: when the input is wrong or the bookkeeping
 fails, the product must land on the side that changes nothing — a typo must not
@@ -216,6 +216,15 @@ class TheRedactorCleansWhatItActuallyLogs(unittest.TestCase):
             out = self._capture("remote response: %s", line)
             self.assertNotIn("1f2e3d4c5b6a7988", out, f"key leaked from: {line}")
             self.assertIn("your_key", out, f"no placeholder for: {line}")
+
+    def test_a_delimiter_inside_the_value_does_not_split_the_redaction(self):
+        """A value class that stopped at , ; } redacted `password=ab,cd` only
+        up to the comma and let the tail through. The value is one quoted
+        string or one whitespace-delimited run — never a partial one."""
+        out = self._capture("remote response: %s", "password=ab,cd-tail&next=1")
+        self.assertNotIn("cd-tail", out)
+        out = self._capture("header dump: %s", "Authorization: Bearer abc.def.ghi")
+        self.assertNotIn("abc.def.ghi", out)
 
     def test_a_bad_format_does_not_lose_the_line(self):
         out = self._capture("only one %s here", "a", "b")  # too many args

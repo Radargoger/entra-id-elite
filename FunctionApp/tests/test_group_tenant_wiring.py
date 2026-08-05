@@ -80,7 +80,7 @@ class ExclusionHappensPerCompanyNotAtLoad(unittest.TestCase):
         rows = [
             {"company_id": "1234567", "own_tenants": [COMPANY_TENANT],
              "api_key": "k", "actor_email": "a@x.com"},
-            {"company_id": "440", "own_tenants": [SIBLING_TENANT],
+            {"company_id": "2234567", "own_tenants": [SIBLING_TENANT],
              "api_key": "k", "actor_email": "b@x.com"},
         ]
         groups = former_companies.derive_group_tenants(rows, [HOLDING_TENANT])
@@ -88,8 +88,8 @@ class ExclusionHappensPerCompanyNotAtLoad(unittest.TestCase):
         self.assertIn(SIBLING_TENANT, groups["1234567"])
         self.assertIn(HOLDING_TENANT, groups["1234567"],
                       "the holding tenant has to reach every company")
-        self.assertNotIn(SIBLING_TENANT, groups["440"])
-        self.assertIn(HOLDING_TENANT, groups["440"])
+        self.assertNotIn(SIBLING_TENANT, groups["2234567"])
+        self.assertIn(HOLDING_TENANT, groups["2234567"])
 
     def test_the_holding_tenant_reaches_a_company_in_that_same_tenant(self):
         """The row is in the holding tenant and the holding tenant is also
@@ -98,12 +98,12 @@ class ExclusionHappensPerCompanyNotAtLoad(unittest.TestCase):
         rows = [
             {"company_id": "1234567", "own_tenants": [HOLDING_TENANT],
              "api_key": "k", "actor_email": "a@x.com"},
-            {"company_id": "440", "own_tenants": [SIBLING_TENANT],
+            {"company_id": "2234567", "own_tenants": [SIBLING_TENANT],
              "api_key": "k", "actor_email": "b@x.com"},
         ]
         groups = former_companies.derive_group_tenants(rows, [HOLDING_TENANT])
         self.assertNotIn(HOLDING_TENANT, groups["1234567"])
-        self.assertIn(HOLDING_TENANT, groups["440"])
+        self.assertIn(HOLDING_TENANT, groups["2234567"])
 
 
 class TheFormDoesNotPromiseAMockedLeakPath(unittest.TestCase):

@@ -26,7 +26,7 @@ _THROTTLE_BACKOFF = 5
 
 # Soft-deleted users get their objectId (32 hex chars, dashes removed) prepended
 # to the userPrincipalName local part, e.g.
-#   c5f5dcecc7234174b1d04bcab9f32e77elite-test-deleted@contoso.onmicrosoft.com
+#   0123456789abcdef0123456789abcdefelite-test-deleted@contoso.onmicrosoft.com
 # That is not a routable address. Strip the prefix so leak matching sees the
 # real UPN (or, when the whole local part IS the objectId, drop it entirely).
 #

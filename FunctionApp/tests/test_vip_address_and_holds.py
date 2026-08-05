@@ -38,10 +38,10 @@ import function_app                                             # noqa: E402
 LIVE_VIP_RECORD = {
     "alarmId": 91, "discoveryDate": "2026-06-02",
     "history": [{"date": "2026-06-02", "detail": "seen", "operator": "sys"}],
-    "keyword": "Emma Bank", "notificationId": 7,
+    "keyword": "Jane Bank", "notificationId": 7,
     "relatedAlarm": {"status": "OPEN", "type": "vip", "url": "https://x.invalid"},
     "source": "forum", "status": "OPEN", "statusReason": "none",
-    "vipName": "Emma Taylor",
+    "vipName": "Jane Doe",
 }
 
 
@@ -51,24 +51,24 @@ class VipAddressSelection(unittest.TestCase):
         return VipFetcher()._map_record(rec, {})
 
     def test_a_display_name_is_not_treated_as_an_address(self):
-        # The defect verbatim: vipName held "Emma Taylor" and became the email.
+        # The defect: vipName held the display name and became the email.
         self.assertEqual(self._mapped()["email"], "")
 
     def test_the_display_name_is_still_reported_in_its_own_field(self):
         # Dropping it from `email` must not lose it from the row.
-        self.assertEqual(self._mapped()["vip_name"], "Emma Taylor")
+        self.assertEqual(self._mapped()["vip_name"], "Jane Doe")
 
     def test_an_address_in_vip_name_is_used(self):
-        row = self._mapped(vipName="emma.taylor@bank.invalid")
-        self.assertEqual(row["email"], "emma.taylor@bank.invalid")
+        row = self._mapped(vipName="jane.doe@bank.invalid")
+        self.assertEqual(row["email"], "jane.doe@bank.invalid")
 
     def test_an_address_in_the_email_field_is_used_when_vip_name_is_a_name(self):
-        row = self._mapped(email="emma@bank.invalid")
-        self.assertEqual(row["email"], "emma@bank.invalid")
+        row = self._mapped(email="jane@bank.invalid")
+        self.assertEqual(row["email"], "jane@bank.invalid")
 
     def test_an_address_in_keyword_is_used_as_a_last_resort(self):
-        row = self._mapped(keyword="emma@bank.invalid")
-        self.assertEqual(row["email"], "emma@bank.invalid")
+        row = self._mapped(keyword="jane@bank.invalid")
+        self.assertEqual(row["email"], "jane@bank.invalid")
 
     def test_the_first_candidate_holding_an_address_wins(self):
         row = self._mapped(vipName="a@x.invalid", email="b@x.invalid",
@@ -79,14 +79,14 @@ class VipAddressSelection(unittest.TestCase):
         # Every other negative fixture here has a space in it, so on its own the
         # suite only proves "a two-word string is not an address". The rule is
         # the '@', not the space.
-        row = self._mapped(vipName="emmataylor", keyword="handle123")
+        row = self._mapped(vipName="janedoe", keyword="handle123")
         self.assertEqual(row["email"], "")
 
     def test_a_name_in_an_earlier_field_does_not_block_a_later_address(self):
         # The ordering has to skip non-addresses, not stop at the first
         # non-empty value — that was the original bug in a different dress.
-        row = self._mapped(vipName="Emma Taylor", keyword="emma@x.invalid")
-        self.assertEqual(row["email"], "emma@x.invalid")
+        row = self._mapped(vipName="Jane Doe", keyword="jane@x.invalid")
+        self.assertEqual(row["email"], "jane@x.invalid")
 
 
 class RecordWithoutAnAddressIsStillAudited(unittest.TestCase):
@@ -127,7 +127,7 @@ class RecordWithoutAnAddressIsStillAudited(unittest.TestCase):
     def _employee(self, email):
         return {
             "email": email, "company_id": "1234567", "source": "vip",
-            "is_employee": True, "alarm_id": 1, "vip_name": "Emma Taylor",
+            "is_employee": True, "alarm_id": 1, "vip_name": "Jane Doe",
             "password_present": False, "password_masked": None,
             "is_plaintext": False,
             "_checkpoint_update": {"last_start_date": "2026-07-27"},
@@ -210,7 +210,7 @@ class RecordWithoutAnAddressIsStillAudited(unittest.TestCase):
     def test_a_record_with_an_address_is_looked_up_as_before(self):
         # Guards the fixture: if nothing is ever looked up, the assertions
         # above would hold for the wrong reason.
-        rows, lookup = self._rows([self._employee("emma@x.invalid")])
+        rows, lookup = self._rows([self._employee("jane@x.invalid")])
         self.assertEqual(rows[0].get("entra_status"), "found")
         self.assertTrue(lookup.called)
 

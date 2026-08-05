@@ -3,7 +3,7 @@ Multi-company (Topology 2) parsing and composition for the Former Employee
 sync (pure logic, no I/O).
 
 Topology 2 (2026-07-25, corporate-group example — company A 1234567/te1234567,
-B 440/te440, C 550/te550 in ONE deployment): FORMER_COMPANY_MAP is a
+B 2234567/te2234567, C 3234567/te3234567 in ONE deployment): FORMER_COMPANY_MAP is a
 JSON app setting with one row per SOCRadar company:
 
     [{"company_id": "1234567",

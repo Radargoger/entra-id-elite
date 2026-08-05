@@ -39,7 +39,7 @@ class LeaseLockTests(unittest.TestCase):
 
     def test_different_companies_independent(self):
         a = InMemoryLeaseLock("1234567", holder="timer")
-        b = InMemoryLeaseLock("440", holder="timer")
+        b = InMemoryLeaseLock("2234567", holder="timer")
         self.assertTrue(a.acquire())
         self.assertTrue(b.acquire())
 

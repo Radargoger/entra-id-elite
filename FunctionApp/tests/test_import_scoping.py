@@ -16,7 +16,7 @@ import function_app  # noqa: E402
 
 MAP = (
     '[{"companyId":"1234567","tenantIds":"t-1234567","apiKey":"k1234567","actorEmail":"a@x.com"},'
-    ' {"companyId":"440","tenantIds":"t-440","apiKey":"k440","actorEmail":"b@x.com"}]'
+    ' {"companyId":"2234567","tenantIds":"t-2234567","apiKey":"k2234567","actorEmail":"b@x.com"}]'
 )
 
 
@@ -42,16 +42,16 @@ class TenantScopingTest(unittest.TestCase):
 
     def test_row_tenants_win_over_global(self):
         rows = function_app._import_company_rows(_conf(company_map_raw=MAP))
-        self.assertEqual([r["company_id"] for r in rows], ["1234567", "440"])
+        self.assertEqual([r["company_id"] for r in rows], ["1234567", "2234567"])
 
         first = function_app._import_company_conf(_conf(company_map_raw=MAP), rows[0])
         second = function_app._import_company_conf(_conf(company_map_raw=MAP), rows[1])
 
         self.assertEqual(first["tenant_ids"], ["t-1234567"])
-        self.assertEqual(second["tenant_ids"], ["t-440"])
+        self.assertEqual(second["tenant_ids"], ["t-2234567"])
         self.assertNotIn("t-global", first["tenant_ids"] + second["tenant_ids"])
         self.assertEqual(first["socradar_api_key"], "k1234567")
-        self.assertEqual(second["socradar_api_key"], "k440")
+        self.assertEqual(second["socradar_api_key"], "k2234567")
 
     def test_tokens_requested_only_for_own_tenants(self):
         rows = function_app._import_company_rows(_conf(company_map_raw=MAP))
@@ -82,7 +82,7 @@ class CheckpointPartitionTest(unittest.TestCase):
         self.assertEqual(function_app._checkpoint_key("botnet", "1234567", row), "botnet:1234567")
         self.assertNotEqual(
             function_app._checkpoint_key("botnet", "1234567", row),
-            function_app._checkpoint_key("botnet", "440", {"company_id": "440"}),
+            function_app._checkpoint_key("botnet", "2234567", {"company_id": "2234567"}),
         )
 
     def test_legacy_partition_unchanged(self):

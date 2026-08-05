@@ -36,12 +36,12 @@ class ATenantThatCouldNotBeRead(unittest.TestCase):
         with mock.patch.object(function_app.entra, "get_graph_token", side_effect=err), \
              mock.patch.object(function_app.law, "write_lifecycle_event") as event:
             data = function_app._prefetch_tenant_data(
-                _fconf(), ["20e37d41-0000-0000-0000-000000000000"], set())
+                _fconf(), ["dddddddd-0000-0000-0000-000000000000"], set())
         return data, event
 
     def test_the_failure_is_still_recorded_on_the_entry(self):
         data, _ = self._run(RuntimeError("consent revoked"))
-        entry = data["20e37d41-0000-0000-0000-000000000000"]
+        entry = data["dddddddd-0000-0000-0000-000000000000"]
         self.assertFalse(entry["read_ok"])
         self.assertIn("consent revoked", entry["error"])
 
@@ -63,7 +63,7 @@ class ATenantThatCouldNotBeRead(unittest.TestCase):
     def test_the_tenant_is_named(self):
         _, event = self._run(RuntimeError("boom"))
         self.assertEqual(event.call_args.kwargs.get("tenant_id"),
-                         "20e37d41-0000-0000-0000-000000000000")
+                         "dddddddd-0000-0000-0000-000000000000")
 
     def test_a_tenant_that_reads_fine_stays_quiet(self):
         with mock.patch.object(function_app.entra, "get_graph_token", return_value="t"), \

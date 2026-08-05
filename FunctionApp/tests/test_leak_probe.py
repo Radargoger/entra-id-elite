@@ -17,7 +17,7 @@ import function_app  # noqa: E402
 
 MAP = json.dumps([
     {"companyId": "1234567", "tenantIds": "tenant-A", "apiKey": "kA", "actorEmail": "a@x.com"},
-    {"companyId": "440", "tenantIds": "tenant-B", "apiKey": "kB", "actorEmail": "b@x.com"},
+    {"companyId": "2234567", "tenantIds": "tenant-B", "apiKey": "kB", "actorEmail": "b@x.com"},
 ])
 
 # Only tenant-A holds this person.
@@ -101,9 +101,9 @@ class ProbeIsolationTest(unittest.TestCase):
         self.assertEqual([t for t, _ in asked], ["tenant-A"])
 
     def test_other_company_does_not_reach_that_tenant(self):
-        """The person exists — in tenant-A. Company 440 owns tenant-B, so it
+        """The person exists — in tenant-A. Company 2234567 owns tenant-B, so it
         must neither find them nor send a single request to tenant-A."""
-        payload, asked = _run_probe("probe@x.com", "440")
+        payload, asked = _run_probe("probe@x.com", "2234567")
         self.assertFalse(payload["found"])
         self.assertEqual(payload["tenants_searched"], ["tenant-B"])
         self.assertNotIn("tenant-A", [t for t, _ in asked])
@@ -187,9 +187,9 @@ class ProbeApplyGatesTest(unittest.TestCase):
         self.assertEqual(payload["_revoke_calls"], 0)
 
     def test_other_tenants_person_is_never_touched(self):
-        """Company 440 owns tenant-B; the person lives in tenant-A. Even with
+        """Company 2234567 owns tenant-B; the person lives in tenant-A. Even with
         apply mode on and apply requested, nothing may happen to them."""
-        payload, asked = _run_probe("probe@x.com", "440", apply=True)
+        payload, asked = _run_probe("probe@x.com", "2234567", apply=True)
         self.assertEqual(payload["apply_reason"],
                          "not found in this company's own tenants")
         self.assertFalse(payload["mutated"])

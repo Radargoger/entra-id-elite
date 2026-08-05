@@ -2,7 +2,7 @@
 Topology 2 (multi-company) tests: FORMER_COMPANY_MAP parsing, full-mesh group
 derivation, per-company composition, and the per-row effective-apply decision.
 Semantics must match the manager's companydomain.com example (company A 1234567/te1234567,
-B 440/te440, C 550/te550 in one deployment).
+B 2234567/te2234567, C 3234567/te3234567 in one deployment).
 """
 import os
 import sys
@@ -17,8 +17,8 @@ from actions.former_companies import (
 
 COMPANYDOMAIN_MAP = """[
   {"company_id": "1234567", "own_tenants": ["te1234567"], "api_key": "k1234567", "actor_email": "A@x.com"},
-  {"company_id": "440", "own_tenants": ["te440"], "api_key": "k440", "actor_email": "b@x.com"},
-  {"company_id": "550", "own_tenants": ["te550"], "api_key": "k550", "actor_email": "f@x.com"}
+  {"company_id": "2234567", "own_tenants": ["te2234567"], "api_key": "k2234567", "actor_email": "b@x.com"},
+  {"company_id": "3234567", "own_tenants": ["te3234567"], "api_key": "k3234567", "actor_email": "f@x.com"}
 ]"""
 
 
@@ -32,7 +32,7 @@ class ParseTests(unittest.TestCase):
     def test_companydomain_map_parses(self):
         rows, errors = parse_company_map(COMPANYDOMAIN_MAP, {})
         self.assertEqual(errors, [])
-        self.assertEqual([r["company_id"] for r in rows], ["1234567", "440", "550"])
+        self.assertEqual([r["company_id"] for r in rows], ["1234567", "2234567", "3234567"])
         self.assertEqual(rows[0]["actor_email"], "a@x.com")  # lowercased
 
     def test_empty_and_bad_json(self):
@@ -46,7 +46,7 @@ class ParseTests(unittest.TestCase):
     def test_bad_rows_dropped_good_rows_survive(self):
         raw = ('[{"company_id": "1234567", "own_tenants": ["t1"], "api_key": "k"},'
                ' {"own_tenants": ["t2"]},'
-               ' {"company_id": "440"},'
+               ' {"company_id": "2234567"},'
                ' {"company_id": "1234567", "own_tenants": ["t3"]}]')
         rows, errors = parse_company_map(raw, {})
         self.assertEqual([r["company_id"] for r in rows], ["1234567"])
@@ -109,16 +109,16 @@ class DeriveTests(unittest.TestCase):
     def test_full_mesh(self):
         rows, _ = parse_company_map(COMPANYDOMAIN_MAP, {})
         groups = derive_group_tenants(rows)
-        self.assertEqual(groups["1234567"], ["te440", "te550"])
-        self.assertEqual(groups["440"], ["te1234567", "te550"])
-        self.assertEqual(groups["550"], ["te1234567", "te440"])
+        self.assertEqual(groups["1234567"], ["te2234567", "te3234567"])
+        self.assertEqual(groups["2234567"], ["te1234567", "te3234567"])
+        self.assertEqual(groups["3234567"], ["te1234567", "te2234567"])
 
     def test_legacy_group_added_everywhere_minus_own(self):
         rows, _ = parse_company_map(COMPANYDOMAIN_MAP, {})
         groups = derive_group_tenants(rows, legacy_group=["teHOLDING", "te1234567"])
         self.assertIn("teHOLDING", groups["1234567"])
         self.assertNotIn("te1234567", groups["1234567"])   # own never in own group
-        self.assertIn("te1234567", groups["440"])
+        self.assertIn("te1234567", groups["2234567"])
 
     def test_single_row_derives_empty_mesh(self):
         rows, _ = parse_company_map(
@@ -128,8 +128,8 @@ class DeriveTests(unittest.TestCase):
     def test_all_tenants_union(self):
         rows, _ = parse_company_map(COMPANYDOMAIN_MAP, {})
         tenants, own_union = all_tenants(rows, ["teHOLDING"])
-        self.assertEqual(tenants, ["te1234567", "te440", "te550", "teHOLDING"])
-        self.assertEqual(own_union, {"te1234567", "te440", "te550"})
+        self.assertEqual(tenants, ["te1234567", "te2234567", "te3234567", "teHOLDING"])
+        self.assertEqual(own_union, {"te1234567", "te2234567", "te3234567"})
         self.assertNotIn("teHOLDING", own_union)  # pure group: actives only
 
 
@@ -165,23 +165,23 @@ class ComposeTests(unittest.TestCase):
     def test_companydomain_semantics_for_1234567(self):
         tenant_data = {
             "te1234567": _tenant(active={"owner1@x.com", "staff1@x.com"},
-                             disabled={"eski1234567@x.com"}),
-            "te440": _tenant(active={"sib440@x.com"}),
-            "te550": _tenant(active={"sib550@x.com"}),
+                             disabled={"former1234567@x.com"}),
+            "te2234567": _tenant(active={"sib2234567@x.com"}),
+            "te3234567": _tenant(active={"sib3234567@x.com"}),
         }
         desired, stats, populations = compose_company(
-            self.ROW, ["te440", "te550"], tenant_data, **self.KW)
-        self.assertEqual(desired, {"sib440@x.com", "sib550@x.com", "eski1234567@x.com"})
+            self.ROW, ["te2234567", "te3234567"], tenant_data, **self.KW)
+        self.assertEqual(desired, {"sib2234567@x.com", "sib3234567@x.com", "former1234567@x.com"})
         self.assertTrue(stats["snapshot_complete"])
         self.assertEqual(stats["company_id"], "1234567")
-        self.assertEqual(populations["sibling_active"], {"sib440@x.com", "sib550@x.com"})
+        self.assertEqual(populations["sibling_active"], {"sib2234567@x.com", "sib3234567@x.com"})
 
     def test_safety_invariant_own_active_subtracted(self):
         tenant_data = {
             "te1234567": _tenant(active={"bob@x.com"}),
-            "te440": _tenant(active={"bob@x.com"}),  # dual-role person
+            "te2234567": _tenant(active={"bob@x.com"}),  # dual-role person
         }
-        desired, _, _ = compose_company(self.ROW, ["te440"], tenant_data, **self.KW)
+        desired, _, _ = compose_company(self.ROW, ["te2234567"], tenant_data, **self.KW)
         self.assertEqual(desired, set())  # own active NEVER former
 
     def test_own_tenant_unread_raises(self):
@@ -191,8 +191,8 @@ class ComposeTests(unittest.TestCase):
 
     def test_group_tenant_unread_marks_incomplete(self):
         tenant_data = {"te1234567": _tenant(active={"a@x.com"}),
-                       "te440": _tenant(read_ok=False)}
-        _, stats, _ = compose_company(self.ROW, ["te440"], tenant_data, **self.KW)
+                       "te2234567": _tenant(read_ok=False)}
+        _, stats, _ = compose_company(self.ROW, ["te2234567"], tenant_data, **self.KW)
         self.assertFalse(stats["snapshot_complete"])
 
     def test_strict_mode_routes_disabled_to_review(self):

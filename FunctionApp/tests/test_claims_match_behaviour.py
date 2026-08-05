@@ -25,7 +25,7 @@ REPO = Path(__file__).resolve().parents[2]
 class ADeletedUserWhoseNameIsOnlyAnObjectId(unittest.TestCase):
     """The comment says such a UPN is dropped entirely. It has to be."""
 
-    OBJECT_ID = "c5f5dcecc7234174b1d04bcab9f32e77"
+    OBJECT_ID = "0123456789abcdef0123456789abcdef"
 
     def test_a_prefixed_name_keeps_the_real_address(self):
         got = extract_emails(

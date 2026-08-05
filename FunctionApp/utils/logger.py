@@ -1,7 +1,9 @@
 """
 Structured logging utilities with source prefix and secret filtering.
 All log output goes through standard Python logging (captured by App Insights).
-Passwords and API keys NEVER appear in any log output.
+Lines that pass through SourceLogger are scrubbed of password/API-key-shaped
+values. Modules that log through a plain logging.getLogger are NOT covered --
+they must never log config rows, headers or raw response bodies.
 """
 
 import logging
@@ -12,9 +14,13 @@ import re
 # `apiKey=...` and the JSON form `{"apiKey": "..."}`. The optional quote before
 # the separator is what catches the second one -- a pattern anchored straight
 # to [=:] walks past the quote and leaves the value in the clear.
+# The value is either one quoted string or one whitespace-delimited run: a
+# character-class that stopped at , ; } redacted `password=ab,cd` only up to
+# the comma and let the tail through. An Authorization value may carry a
+# `Bearer ` prefix before the part that must go.
 _SECRET_PATTERN = re.compile(
-    r'(password|passwd|pwd|credential|secret|token|api[-_]?key)'
-    r'["\']?\s*[=:]\s*["\']?[^\s"\',;}]+',
+    r'(password|passwd|pwd|credential|secret|token|api[-_]?key|authorization)'
+    r'["\']?\s*[=:]\s*(?:[Bb]earer\s+)?(?:"[^"]*"|\'[^\']*\'|\S+)',
     re.IGNORECASE
 )
 
@@ -27,6 +33,7 @@ _PLACEHOLDERS = {
     'credential': 'your_credential',
     'secret': 'your_secret',
     'token': 'your_token',
+    'authorization': 'your_token',
 }
 
 
